@@ -12,7 +12,7 @@ import { useFolders } from "@/hooks/use-folders"
 import { useFiles } from "@/hooks/use-files"
 import type { Folder, File } from "@/types/database"
 
-export function DashboardContent() {
+export function DashboardPage() {
   const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null)
   const [showCreateFolder, setShowCreateFolder] = useState(false)
   const [showUploadFile, setShowUploadFile] = useState(false)
@@ -42,9 +42,13 @@ export function DashboardContent() {
     setShowDataViewer(true)
   }
 
-  const handleUploadFile = async (data: { name: string; description: string; file: File }) => {
-    await uploadFile(data)
-  }
+  const handleUploadFile = async (data: { name: string; description: string; file: globalThis.File }) => {
+      await uploadFile({
+        name: data.name,
+        description: data.description,
+        file: data.file as any // Cast to 'any' or update uploadFile to accept globalThis.File
+      })
+    }
 
   if (!selectedFolder) {
     return (
@@ -112,7 +116,6 @@ export function DashboardContent() {
           <div className="flex items-center space-x-4">
             <Button variant="ghost" size="sm" onClick={() => setSelectedFolder(null)}>
               <ArrowLeft className="h-4 w-4 mr-2" />
-              
             </Button>
             <div>
               {/* <h1 className="text-3xl font-bold text-foreground">{selectedFolder.name}</h1> */}
