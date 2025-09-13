@@ -59,57 +59,53 @@ const handleUploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
   setError(null)
   setSuccess(null)
 
+  const filename = `${profile?.id}/avatar-${Date.now()}-${file.name}`
+
   try {
-    if (!profile) throw new Error("Profile not found")
-
-    const bucketName = "avatars"
-
-    // Check if bucket exists
-    const { data: buckets } = await supabase.storage.listBuckets()
-    const bucketExists = buckets?.some((b) => b.name === bucketName)
-    console.log("Existing buckets:", buckets)
-    
-
-    if (!bucketExists) {
-      throw new Error(
-        `Storage bucket "${bucketName}" does not exist. Please create it in Supabase dashboard.`
-      )
+    // Upload to Supabase Storage
+    const { data, error } = await supabase.storage
+      .from("avatars")
+      .upload(filename, file, {
+        cacheControl: "3600",
+        upsert: true,
+      })
+    if (error) {
+      setError(error.message)
+      setUploading(false)
+      return
     }
-
-    // Make a unique file name
-    const fileName = `${profile.id}-${Date.now()}-${file.name}`
-
-    // Upload file
-    const { error: uploadError } = await supabase.storage
-      .from(bucketName)
-      .upload(fileName, file, { upsert: true })
-
-    if (uploadError) throw uploadError
-
+    console.log("Upload data:", data)
     // Get public URL
-    const { data: publicUrlData } = supabase.storage
-      .from(bucketName)
-      .getPublicUrl(fileName)
-
-    if (!publicUrlData?.publicUrl) throw new Error("Could not get public URL")
-
-    // Update profile
+    const { data: urlData } = supabase.storage
+      .from("avatars")
+      .getPublicUrl(filename)
+    const publicUrl = urlData?.publicUrl
+    console.log("Public URL:", publicUrl)
+    if (!publicUrl) {
+      setError("Failed to get avatar URL")
+      setUploading(false)
+      return
+    }
+    
+    // Update profile with avatar URL
     const { error: updateError } = await supabase
       .from("profiles")
-      .update({ avatar_url: publicUrlData.publicUrl })
-      .eq("id", profile.id)
-
-    if (updateError) throw updateError
-
+      .update({ avatar_url: publicUrl })
+      .eq("id", profile?.id)
+    console.log("Profile update error:", updateError)
+    if (updateError) {
+      setError(updateError.message)
+      setUploading(false)
+      return
+    }
+    setSuccess("Avatar uploaded successfully!")
     await refreshProfile()
-    setSuccess("Avatar updated successfully!")
   } catch (error: unknown) {
-    setError(error instanceof Error ? error.message : "An error occurred")
+    setError(error instanceof Error ? error.message : "An error occurred during upload")
   } finally {
     setUploading(false)
   }
 }
-
   if (!profile) {
     return (
       <DashboardLayout>
