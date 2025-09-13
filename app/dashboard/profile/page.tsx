@@ -138,9 +138,15 @@ const handleUploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
                   <Avatar className="h-24 w-24">
                     <AvatarImage src={profile.avatar_url || ""} />
                     <AvatarFallback>
-                      {profile.full_name
-                        ? profile.full_name.split(" ").map((n) => n[0]).join("").toUpperCase()
-                        : profile.email?.[0]?.toUpperCase() ?? "?"}
+                      {uploading ? (
+                        <span className="flex items-center justify-center h-full w-full">
+                          <span className="animate-spin h-6 w-6 border-4 border-gray-300 border-t-primary rounded-full inline-block" />
+                        </span>
+                      ) : (
+                        profile.full_name
+                          ? profile.full_name.split(" ").map((n) => n[0]).join("").toUpperCase()
+                          : profile.email?.[0]?.toUpperCase() ?? "?"
+                      )}
                     </AvatarFallback>
                   </Avatar>
                   {/* Upload Button */}
@@ -157,9 +163,9 @@ const handleUploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
                   </Badge>
                 </div>
               </div>
-              {uploading && <p className="text-sm text-muted-foreground mt-2">Uploading avatar...</p>}
+              {/* {uploading && <p className="text-sm text-muted-foreground mt-2">Uploading avatar...</p>}
               {error && <p className="text-sm text-destructive mt-2">{error}</p>}
-              {success && <p className="text-sm text-green-600 mt-2">{success}</p>}
+              {success && <p className="text-sm text-green-600 mt-2">{success}</p>} */}
             </CardContent>
           </Card>
 

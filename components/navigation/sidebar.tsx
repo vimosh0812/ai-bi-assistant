@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { BarChart3, Users, Settings, Home, Database, TrendingUp, Shield, LogOut, User, ChevronDown } from "lucide-react"
+import { BarChart3, Users, Settings, Home, Database, TrendingUp, Shield, LogOut, User, ChevronDown , Crown} from "lucide-react"
 
 interface NavItem {
   title: string
@@ -59,13 +59,12 @@ const navItems: NavItem[] = [
     roles: ["admin"],
     badge: "Admin",
   },
-  // {
-  //   title: "System Settings",
-  //   href: "/dashboard/settings",
-  //   icon: Shield,
-  //   roles: ["admin"],
-  //   badge: "Admin",
-  // },
+  {
+    title: "Billing",
+    href: "/dashboard/payments",
+    icon: Crown,
+    roles: ["admin", "user"],
+  },
   {
     title: "Profile Settings",
     href: "/dashboard/profile",

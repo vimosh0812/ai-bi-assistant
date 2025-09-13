@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { BarChart3, Users, Settings, Home, Database, TrendingUp, Shield, Menu } from "lucide-react"
+import { BarChart3, Users, Settings, Home, Database, TrendingUp, Shield, Menu , Crown} from "lucide-react"
 
 interface NavItem {
   title: string
@@ -33,18 +33,18 @@ const navItems: NavItem[] = [
     icon: BarChart3,
     roles: ["admin", "user"],
   },
-  {
-    title: "Reports",
-    href: "/dashboard/reports",
-    icon: TrendingUp,
-    roles: ["admin", "user"],
-  },
-  {
-    title: "Data Sources",
-    href: "/dashboard/data-sources",
-    icon: Database,
-    roles: ["admin", "user"],
-  },
+  // {
+  //   title: "Reports",
+  //   href: "/dashboard/reports",
+  //   icon: TrendingUp,
+  //   roles: ["admin", "user"],
+  // },
+  // {
+  //   title: "Data Sources",
+  //   href: "/dashboard/data-sources",
+  //   icon: Database,
+  //   roles: ["admin", "user"],
+  // },
   {
     title: "User Management",
     href: "/dashboard/users",
@@ -53,11 +53,10 @@ const navItems: NavItem[] = [
     badge: "Admin",
   },
   {
-    title: "System Settings",
-    href: "/dashboard/settings",
-    icon: Shield,
-    roles: ["admin"],
-    badge: "Admin",
+    title: "Billing",
+    href: "/dashboard/payments",
+    icon: Crown,
+    roles: ["admin", "user"],
   },
   {
     title: "Profile Settings",
