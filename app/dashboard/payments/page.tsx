@@ -44,32 +44,28 @@ const packages = [
     },
 ]
 
+
+
 export default function PaymentDashboard() {
     const [loadingPackage, setLoadingPackage] = useState<string | null>(null)
     const router = useRouter()
 
     const handleCheckout = async (pkgId: string) => {
-        setLoadingPackage(pkgId)
-        try {
-            // Call backend API to create a Stripe Checkout Session
-            const res = await fetch("/api/checkout", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ packageId: pkgId }),
-            })
-            const data = await res.json()
-            if (data?.url) {
-                // Navigate to Stripe Checkout page
-                window.location.href = data.url
-            } else {
-                throw new Error("Checkout URL not returned")
-            }
-        } catch (err) {
-            console.error(err)
-        } finally {
-            setLoadingPackage(null)
-        }
+    setLoadingPackage(pkgId);
+    try {
+        const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packageId: pkgId }),
+        });
+        const data = await res.json();
+        if (data?.url) window.location.href = data.url; // redirect to Stripe
+    } catch (err) {
+        console.error(err);
+    } finally {
+        setLoadingPackage(null);
     }
+    };
 
     return (
         <DashboardLayout>
