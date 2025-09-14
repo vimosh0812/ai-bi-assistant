@@ -32,14 +32,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
 
   const fetchProfile = async (userId: string) => {
+    setLoading(true)
     try {
-      console.log("[v0] Fetching profile for user:", userId)
+      console.log("Fetching profile for user:", userId)
       const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single()
-
+      console.log("Profile fetch response:", { data, error })
       if (error) {
-        console.log("[v0] Profile fetch error:", error.message)
+        console.log("Profile fetch error:", error.message)
         if (error.code === "PGRST116" || error.message.includes('relation "public.profiles" does not exist')) {
-          console.log("[v0] Profiles table doesn't exist, using default profile")
+          console.log("Profiles table doesn't exist, using default profile")
           setProfile({
             id: userId,
             email: user?.email || "",
@@ -53,11 +54,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         throw error
       }
-      console.log("[v0] Profile fetched successfully:", data)
+      console.log("Profile fetched successfully:", data)
       setProfile(data)
     } catch (error) {
-      console.error("[v0] Error fetching profile:", error)
+      console.error("Error fetching profile:", error)
       setProfile(null)
+    }
+    finally {
+      setLoading(false)
     }
   }
 
@@ -82,10 +86,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    console.log("[v0] Initializing auth state")
-    // Get initial session
+    console.log("Initializing auth state")
     supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log("[v0] Initial session:", session?.user?.email || "No user")
+      console.log("Initial session:", session?.user?.email || "No user")
       setUser(session?.user ?? null)
       if (session?.user) {
         fetchProfile(session.user.id)
@@ -94,11 +97,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
-    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("[v0] Auth state changed:", event, session?.user?.email || "No user")
+      console.log("Auth state changed:", event, session?.user?.email || "No user")
       setUser(session?.user ?? null)
 
       if (session?.user) {
@@ -115,7 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user || !profile) return
 
-    console.log("[v0] Setting up real-time profile subscription for user:", user.id)
+    console.log("Setting up real-time profile subscription for user:", user.id)
 
     const profileSubscription = supabase
       .channel(`profile-${user.id}`)
@@ -128,18 +130,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           filter: `id=eq.${user.id}`,
         },
         (payload) => {
-          console.log("[v0] Profile updated in real-time:", payload)
+          console.log("Profile updated in real-time:", payload)
           if (payload.eventType === "UPDATE" && payload.new) {
             setProfile(payload.new as Profile)
           }
         },
       )
       .subscribe((status) => {
-        console.log("[v0] Profile subscription status:", status)
+        console.log("Profile subscription status:", status)
       })
 
     return () => {
-      console.log("[v0] Cleaning up profile subscription")
+      console.log("Cleaning up profile subscription")
       supabase.removeChannel(profileSubscription)
     }
   }, [user, profile])

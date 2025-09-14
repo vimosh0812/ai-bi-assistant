@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Plus, FolderPlus, Upload, ArrowLeft } from "lucide-react"
 import { FolderCard } from "@/components/folder-card"
 import { FileCard } from "@/components/file-card"
@@ -19,17 +20,42 @@ export function DashboardContent() {
   const [showDataViewer, setShowDataViewer] = useState(false)
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null)
   const [viewingFile, setViewingFile] = useState<File | null>(null)
+  const [creatingFolder, setCreatingFolder] = useState(false)
+  const [uploadingFile, setUploadingFile] = useState(false)
 
-  const { folders, loading: foldersLoading, createFolder, updateFolder, deleteFolder } = useFolders()
-  const { files, loading: filesLoading, uploadFile, deleteFile } = useFiles(selectedFolder?.id)
+  const {
+    folders,
+    loading: foldersLoading,
+    createFolder,
+    updateFolder,
+    deleteFolder,
+  } = useFolders()
+
+  const {
+    files,
+    loading: filesLoading,
+    uploadFile,
+    deleteFile,
+  } = useFiles(selectedFolder?.id)
+
+  // ✅ Reusable loading grid for skeletons
+  const LoadingGrid = ({ count }: { count: number }) => (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-pulse">
+      {Array.from({ length: count }).map((_, i) => (
+        <Skeleton key={i} className="h-32 w-full rounded-lg" />
+      ))}
+    </div>
+  )
 
   const handleCreateFolder = async (data: { name: string; description: string }) => {
+    setCreatingFolder(true)
     if (editingFolder) {
       await updateFolder(editingFolder.id, data)
       setEditingFolder(null)
     } else {
       await createFolder(data)
     }
+    setCreatingFolder(false)
   }
 
   const handleEditFolder = (folder: Folder) => {
@@ -42,10 +68,17 @@ export function DashboardContent() {
     setShowDataViewer(true)
   }
 
-  const handleUploadFile = async (data: { name: string; description: string; file: File }) => {
-    await uploadFile(data)
+  const handleUploadFile = async (data: { name: string; description: string; file: globalThis.File }) => {
+    setUploadingFile(true)
+    await uploadFile({
+      name: data.name,
+      description: data.description,
+      file: data.file as any,
+    })
+    setUploadingFile(false)
   }
 
+  // ---------------- FOLDER VIEW ----------------
   if (!selectedFolder) {
     return (
       <div className="min-h-screen bg-background">
@@ -53,25 +86,25 @@ export function DashboardContent() {
           <div className="flex items-center justify-between mb-8">
             <div>
               <h1 className="text-3xl font-bold text-foreground">CSV File Manager</h1>
-              <p className="text-muted-foreground mt-2">Organize and manage your CSV files in folders</p>
+              <p className="text-muted-foreground mt-2">
+                Organize and manage your CSV files in folders
+              </p>
             </div>
-            <Button onClick={() => setShowCreateFolder(true)}>
+            <Button onClick={() => setShowCreateFolder(true)} disabled={creatingFolder}>
               <FolderPlus className="h-4 w-4 mr-2" />
-              Create Folder
+              {creatingFolder ? "Creating..." : "Create Folder"}
             </Button>
           </div>
 
-          {foldersLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="h-32 bg-muted rounded-lg animate-pulse" />
-              ))}
-            </div>
+          {foldersLoading || creatingFolder ? (
+            <LoadingGrid count={8} />
           ) : folders.length === 0 ? (
             <div className="text-center py-12">
               <FolderPlus className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <h3 className="text-lg font-medium text-foreground mb-2">No folders yet</h3>
-              <p className="text-muted-foreground mb-4">Create your first folder to start organizing CSV files</p>
+              <p className="text-muted-foreground mb-4">
+                Create your first folder to start organizing CSV files
+              </p>
               <Button onClick={() => setShowCreateFolder(true)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Create First Folder
@@ -105,6 +138,7 @@ export function DashboardContent() {
     )
   }
 
+  // ---------------- FILE VIEW ----------------
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto p-6">
@@ -112,30 +146,26 @@ export function DashboardContent() {
           <div className="flex items-center space-x-4">
             <Button variant="ghost" size="sm" onClick={() => setSelectedFolder(null)}>
               <ArrowLeft className="h-4 w-4 mr-2" />
-              
             </Button>
             <div>
-              {/* <h1 className="text-3xl font-bold text-foreground">{selectedFolder.name}</h1> */}
               <p className="text-muted-foreground mt-1">{selectedFolder.name}</p>
             </div>
           </div>
-          <Button onClick={() => setShowUploadFile(true)}>
+          <Button onClick={() => setShowUploadFile(true)} disabled={uploadingFile}>
             <Upload className="h-4 w-4 mr-2" />
-            Upload CSV
+            {uploadingFile ? "Uploading..." : "Upload CSV"}
           </Button>
         </div>
 
-        {filesLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="h-32 bg-muted rounded-lg animate-pulse" />
-            ))}
-          </div>
+        {filesLoading || uploadingFile ? (
+          <LoadingGrid count={6} />
         ) : files.length === 0 ? (
           <div className="text-center py-12">
             <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium text-foreground mb-2">No files yet</h3>
-            <p className="text-muted-foreground mb-4">Upload your first CSV file to this folder</p>
+            <p className="text-muted-foreground mb-4">
+              Upload your first CSV file to this folder
+            </p>
             <Button onClick={() => setShowUploadFile(true)}>
               <Upload className="h-4 w-4 mr-2" />
               Upload CSV File
@@ -148,7 +178,7 @@ export function DashboardContent() {
                 key={file.id}
                 file={file}
                 onView={handleViewFile}
-                onEdit={() => {}} // TODO: Implement file editing
+                onEdit={() => {}} // TODO: implement file editing
                 onDelete={deleteFile}
               />
             ))}
@@ -162,7 +192,11 @@ export function DashboardContent() {
           folderId={selectedFolder.id}
         />
 
-        <CSVDataViewer open={showDataViewer} onOpenChange={setShowDataViewer} file={viewingFile} />
+        <CSVDataViewer
+          open={showDataViewer}
+          onOpenChange={setShowDataViewer}
+          file={viewingFile}
+        />
       </div>
     </div>
   )
