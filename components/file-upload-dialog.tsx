@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import {
@@ -23,6 +22,22 @@ interface FileUploadDialogProps {
   onOpenChange: (open: boolean) => void
   onSubmit: (data: { name: string; description: string; file: File }) => Promise<void>
   folderId: string
+}
+
+function parseCSVHeaders(file: File): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = reader.result as string
+      const firstLine = text.split(/\r?\n/).find((line) => line.trim())
+      if (!firstLine) return resolve([])
+      // Split by comma but ignore commas inside quotes
+      const headers = firstLine.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || []
+      resolve(headers.map((h) => h.replace(/"/g, "").trim()))
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(file)
+  })
 }
 
 export function FileUploadDialog({ open, onOpenChange, onSubmit, folderId }: FileUploadDialogProps) {
@@ -47,12 +62,32 @@ export function FileUploadDialog({ open, onOpenChange, onSubmit, folderId }: Fil
     }
   }
 
+  const generateDescriptionFromFile = async (selectedFile: File) => {
+    try {
+      const headers = await parseCSVHeaders(selectedFile)
+      if (headers.length) {
+        const structuredDescription =
+          "Description:\n\n" +
+          "Columns: {\n" +
+          headers.map((h) => `  ${h}:`).join("\n") + "\n}\n" +
+          "\nTags: "
+        setDescription(structuredDescription)
+      } else {
+        setDescription("")
+      }
+    } catch (error) {
+      console.error("Failed to parse CSV headers:", error)
+      setDescription("")
+    }
+  }
+
   const handleFileChange = (selectedFile: File | null) => {
     if (selectedFile && selectedFile.type === "text/csv") {
       setFile(selectedFile)
       if (!name) {
         setName(selectedFile.name.replace(".csv", ""))
       }
+      generateDescriptionFromFile(selectedFile)
     }
   }
 
@@ -70,7 +105,6 @@ export function FileUploadDialog({ open, onOpenChange, onSubmit, folderId }: Fil
     e.preventDefault()
     e.stopPropagation()
     setDragActive(false)
-
     const droppedFile = e.dataTransfer.files[0]
     handleFileChange(droppedFile)
   }
@@ -135,17 +169,20 @@ export function FileUploadDialog({ open, onOpenChange, onSubmit, folderId }: Fil
               />
             </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Enter file description (optional)"
-                rows={3}
-              />
-            </div>
+            {file && (
+              <div className="grid gap-2">
+                <Label htmlFor="description">Meta Data</Label>
+                <Textarea
+                  id="description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Enter file description (optional)"
+                  rows={6}
+                />
+              </div>
+            )}
           </div>
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel

@@ -32,7 +32,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
 
   const fetchProfile = async (userId: string) => {
-    setLoading(true)
     try {
       console.log("Fetching profile for user:", userId)
       const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single()
@@ -59,9 +58,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error("Error fetching profile:", error)
       setProfile(null)
-    }
-    finally {
-      setLoading(false)
     }
   }
 

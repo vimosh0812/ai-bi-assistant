@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import type { File } from "@/types/database"
 import { useToast } from "@/hooks/use-toast"
+import { se } from "date-fns/locale"
 
 function parseCSV(csvText: string) {
   const lines = csvText.split(/\r?\n/).filter((line) => line.trim())
@@ -52,13 +53,16 @@ export function useFiles(folderId?: string) {
       setLoading(false)
       return
     }
-
+    setLoading(true)
     try {
+      console.log("Fetching files for folder:", folderId)
       const { data, error } = await supabase
         .from("files")
         .select("*")
         .eq("folder_id", folderId)
         .order("created_at", { ascending: false })
+      console.log("Files fetch response:", { data, error })
+      setLoading(false)
 
       if (error) throw error
       setFiles(data || [])
