@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { FileText, MoreVertical, Edit, Trash2, Eye } from "lucide-react"
+import { FileText, MoreVertical, Edit, Trash2, Eye, Bot } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import type { File as FileType } from "@/types/database"
 
@@ -11,9 +11,10 @@ interface FileCardProps {
   onEdit: (file: FileType) => void
   onDelete: (fileId: string) => void
   onView: (file: FileType) => void
+  onShowData?: (file: FileType) => void
 }
 
-export function FileCard({ file, onEdit, onDelete, onView }: FileCardProps) {
+export function FileCard({ file, onEdit, onDelete, onView, onShowData }: FileCardProps) {
   return (
     <Card className="cursor-pointer hover:shadow-md transition-shadow">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -29,9 +30,15 @@ export function FileCard({ file, onEdit, onDelete, onView }: FileCardProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => onView(file)}>
-              <Eye className="mr-2 h-4 w-4" />
-              View Data
+              <Bot className="mr-2 h-4 w-4" />
+              Chat with Data
             </DropdownMenuItem>
+            {onShowData && (
+              <DropdownMenuItem onClick={() => onShowData(file)}>
+                <Eye className="mr-2 h-4 w-4" />
+                View Raw Data
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => onEdit(file)}>
               <Edit className="mr-2 h-4 w-4" />
               Edit

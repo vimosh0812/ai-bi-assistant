@@ -9,6 +9,7 @@ import { FileCard } from "@/components/file-card"
 import { CreateFolderDialog } from "@/components/create-folder-dialog"
 import { FileUploadDialog } from "@/components/file-upload-dialog"
 import { CSVDataViewer } from "@/components/csv-data-viewer"
+import { CSVChatbot } from "@/components/csv-chatbot"
 import { useFolders } from "@/hooks/use-folders"
 import { useFiles } from "@/hooks/use-files"
 import type { Folder, File } from "@/types/database"
@@ -20,23 +21,13 @@ export function DashboardContent() {
   const [showDataViewer, setShowDataViewer] = useState(false)
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null)
   const [viewingFile, setViewingFile] = useState<File | null>(null)
+  const [chatbotFile, setChatbotFile] = useState<File | null>(null)
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [uploadingFile, setUploadingFile] = useState(false)
 
-  const {
-    folders,
-    loading: foldersLoading,
-    createFolder,
-    updateFolder,
-    deleteFolder,
-  } = useFolders()
+  const { folders, loading: foldersLoading, createFolder, updateFolder, deleteFolder } = useFolders()
 
-  const {
-    files,
-    loading: filesLoading,
-    uploadFile,
-    deleteFile,
-  } = useFiles(selectedFolder?.id)
+  const { files, loading: filesLoading, uploadFile, deleteFile } = useFiles(selectedFolder?.id)
 
   const LoadingGrid = ({ count }: { count: number }) => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-pulse">
@@ -64,6 +55,11 @@ export function DashboardContent() {
 
   const handleViewFile = (file: File) => {
     setViewingFile(file)
+    setChatbotFile(file)
+  }
+
+  const handleViewData = (file: File) => {
+    setViewingFile(file)
     setShowDataViewer(true)
   }
 
@@ -77,6 +73,11 @@ export function DashboardContent() {
     setUploadingFile(false)
   }
 
+  const handleCloseChatbot = () => {
+    setChatbotFile(null)
+    setViewingFile(null)
+  }
+
   // ---------------- FOLDER VIEW ----------------
   if (!selectedFolder) {
     return (
@@ -85,9 +86,7 @@ export function DashboardContent() {
           <div className="flex items-center justify-between mb-8">
             <div>
               <h1 className="text-3xl font-bold text-foreground">CSV File Manager</h1>
-              <p className="text-muted-foreground mt-2">
-                Organize and manage your CSV files in folders
-              </p>
+              <p className="text-muted-foreground mt-2">Organize and manage your CSV files in folders</p>
             </div>
             <Button onClick={() => setShowCreateFolder(true)} disabled={creatingFolder}>
               <FolderPlus className="h-4 w-4 mr-2" />
@@ -101,9 +100,7 @@ export function DashboardContent() {
             <div className="text-center py-12">
               <FolderPlus className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <h3 className="text-lg font-medium text-foreground mb-2">No folders yet</h3>
-              <p className="text-muted-foreground mb-4">
-                Create your first folder to start organizing CSV files
-              </p>
+              <p className="text-muted-foreground mb-4">Create your first folder to start organizing CSV files</p>
               <Button onClick={() => setShowCreateFolder(true)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Create First Folder
@@ -147,7 +144,7 @@ export function DashboardContent() {
               <ArrowLeft className="h-4 w-4 mr-2" />
             </Button>
             <div>
-                <p className="text-black mt-1">{selectedFolder.name}</p>
+              <p className="text-black mt-1">{selectedFolder.name}</p>
             </div>
           </div>
           <Button onClick={() => setShowUploadFile(true)} disabled={uploadingFile}>
@@ -162,9 +159,7 @@ export function DashboardContent() {
           <div className="text-center py-12">
             <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium text-foreground mb-2">No files yet</h3>
-            <p className="text-muted-foreground mb-4">
-              Upload your first CSV file to this folder
-            </p>
+            <p className="text-muted-foreground mb-4">Upload your first CSV file to this folder</p>
             <Button onClick={() => setShowUploadFile(true)}>
               <Upload className="h-4 w-4 mr-2" />
               Upload CSV File
@@ -191,11 +186,9 @@ export function DashboardContent() {
           folderId={selectedFolder.id}
         />
 
-        <CSVDataViewer
-          open={showDataViewer}
-          onOpenChange={setShowDataViewer}
-          file={viewingFile}
-        />
+        <CSVDataViewer open={showDataViewer} onOpenChange={setShowDataViewer} file={viewingFile} />
+
+        {chatbotFile && <CSVChatbot file={chatbotFile} onClose={handleCloseChatbot} onViewData={handleViewData} />}
       </div>
     </div>
   )
