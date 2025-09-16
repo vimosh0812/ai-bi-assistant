@@ -71,16 +71,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     console.log("Signing out user")
-    const { error } = await supabase.auth.signOut()
+    let error = null
+    try {
+      // Add a timeout to prevent hanging forever
+      const signOutPromise = supabase.auth.signOut()
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Sign out timed out")), 8000)
+      )
+      const result = await Promise.race([signOutPromise, timeoutPromise])
+      error = (result as any)?.error || null
+    } catch (err: any) {
+      error = err
+    }
     if (error) {
-      console.error("Sign out error:", error.message)
+      console.error("Sign out error:", error.message || error)
+      alert("Sign out failed: " + (error.message || error))
       return
     }
     console.log("User signed out, redirecting to login")
-    window.location.href = "/auth/login"
     setUser(null)
     setProfile(null)
-
+    window.location.href = "/auth/login"
   }
 
   useEffect(() => {

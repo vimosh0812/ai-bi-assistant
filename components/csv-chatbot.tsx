@@ -6,11 +6,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Send, Bot, User, Loader2, X, BarChart3 } from "lucide-react"
 import type { File } from "@/types/database"
+import { ChartViewer } from "@/components/chart-viewer"
 
 interface Message {
   id: string
   role: "user" | "assistant"
   content: string
+  sql?: string
+  result?: any
+  sqlError?: string
+  chartData?: any
   timestamp: Date
 }
 
@@ -33,7 +38,7 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
         {
           id: "1",
           role: "assistant",
-          content: `Hello! I'm here to help you analyze the data in "${file.name}". You can ask me questions about the data, request summaries, or ask for specific insights. What would you like to know?`,
+          content: `Hello! I'm here to help you analyze the data in "${file.name}". You can ask me questions about the data, request summaries, or ask for specific insights. I can also suggest Tableau visualizations for your data. What would you like to know?`,
           timestamp: new Date(),
         },
       ])
@@ -82,15 +87,14 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
 
       const data = await response.json()
 
-      // Build assistant message content
-      let content = data.explanation || "No response from assistant."
-      if (data.sql) content += `\n\nSQL Generated:\n${data.sql}`
-      if (data.result) content += `\n\nQuery Result:\n${JSON.stringify(data.result, null, 2)}`
-
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content,
+        content: data.explanation || "No response from assistant.",
+        sql: data.sql || undefined,
+        result: data.result || undefined,
+        sqlError: data.sqlError || undefined,
+        chartData: data.chartData || undefined,
         timestamp: new Date(),
       }
 
@@ -154,6 +158,51 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
                   }`}
                 >
                   <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+
+                  {message.sql && (
+                    <div className="mt-3 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs">
+                      <p className="font-semibold mb-1">SQL Used:</p>
+                      <code className="text-xs">{message.sql}</code>
+                    </div>
+                  )}
+
+                  {message.result && (
+                    <div className="mt-3 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs">
+                      <p className="font-semibold mb-1">SQL Results:</p>
+                      <div className="max-h-32 overflow-y-auto">
+                        {Array.isArray(message.result) ? (
+                          <div className="space-y-1">
+                            {message.result.slice(0, 10).map((row, idx) => (
+                              <div key={idx} className="text-xs">
+                                {JSON.stringify(row)}
+                              </div>
+                            ))}
+                            {message.result.length > 10 && (
+                              <p className="text-xs text-muted-foreground">
+                                ... and {message.result.length - 10} more rows
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <code className="text-xs">{JSON.stringify(message.result)}</code>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {message.sqlError && (
+                    <div className="mt-3 p-2 bg-red-50 dark:bg-red-900/20 rounded text-xs">
+                      <p className="font-semibold mb-1 text-red-600">SQL Error:</p>
+                      <code className="text-xs text-red-600">{message.sqlError}</code>
+                    </div>
+                  )}
+
+                  {message.chartData && (
+                    <div className="mt-3">
+                      <ChartViewer chartData={message.chartData} />
+                    </div>
+                  )}
+
                   <p className={`text-xs mt-1 ${message.role === "user" ? "text-blue-100" : "text-muted-foreground"}`}>
                     {message.timestamp.toLocaleTimeString()}
                   </p>
@@ -170,7 +219,7 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
                 <div className="rounded-lg px-4 py-2 bg-muted text-foreground">
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm">Thinking...</span>
+                    <span className="text-sm">Analyzing data...</span>
                   </div>
                 </div>
               </div>
@@ -184,7 +233,7 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask a question about your data..."
+              placeholder="Ask about your data or request a chart..."
               disabled={isLoading}
               className="flex-1"
             />

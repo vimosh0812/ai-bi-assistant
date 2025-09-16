@@ -61,11 +61,16 @@ export function useFiles(folderId?: string) {
         .select("*")
         .eq("folder_id", folderId)
         .order("created_at", { ascending: false })
-      console.log("Files fetch response:", { data, error })
-      setLoading(false)
 
-      if (error) throw error
-      setFiles(data || [])
+      console.log("Files fetch response:", { data, error })
+
+      if (error) {
+        console.error("Supabase error:", error)
+        setFiles([])
+      } else {
+        setFiles(data || [])
+      }
+      setLoading(false)
     } catch (error) {
       console.error("Error fetching files:", error)
       toast({

@@ -1,18 +1,12 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 
-export async function GET(
-  request: Request,
-  { params }: { params?: Promise<{ tableName?: string, page?: string; limit?: string }> },
-) {
+export async function GET(request: NextRequest) {
   try {
-    if (!params) {
-      return NextResponse.json({ error: "Parameters are required" }, { status: 400 })
-    }
-    const { tableName: tableNameValue, page: pageValue, limit: limitValue } = await params;
-    const tableName = tableNameValue;
-    const page = pageValue ? Number.parseInt(pageValue) : 1;
-    const limit = limitValue ? Number.parseInt(limitValue) : 10;
+    const {searchParams } = request.nextUrl;
+    const tableName = searchParams.get("tableName")
+    const page = Number.parseInt(searchParams.get("page") || "1")
+    const limit = Number.parseInt(searchParams.get("limit") || "50")
 
     if (!tableName) {
       return NextResponse.json({ error: "Table name is required" }, { status: 400 })
