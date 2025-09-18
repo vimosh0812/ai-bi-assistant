@@ -49,7 +49,7 @@ export function TopNav() {
           </Button>
           {/* User Menu */}
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <DropdownMenuTrigger>
               <Button
                 variant="ghost"
                 className="flex items-center justify-center h-10 w-10 rounded-full p-0"

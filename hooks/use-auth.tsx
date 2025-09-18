@@ -20,7 +20,7 @@ interface AuthContextType {
   profile: Profile | null
   loading: boolean
   signOut: () => Promise<void>
-  refreshProfile: () => Promise<void>
+  refreshProfile: () => Promise<Profile | null | undefined>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -34,13 +34,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const fetchProfile = async (userId: string) => {
     try {
       console.log("Fetching profile for user:", userId)
-      const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single()
+      console.log(supabase)
+      // Helper to fetch profile with timeout
+      const fetchWithTimeout = async (timeoutMs = 2000) => {
+        return await Promise.race([
+          supabase.from("profiles").select("*").eq("id", userId).single(),
+          new Promise<{ data: any; error: any }>((_, reject) =>
+            setTimeout(() => reject(new Error("Fetch profile timed out")), timeoutMs)
+          ),
+        ])
+      }
+
+      let data, error
+      let attempts = 0
+      const maxAttempts = 2
+      while (attempts < maxAttempts) {
+        try {
+          ;({ data, error } = await fetchWithTimeout())
+          break
+        } catch (err) {
+          attempts++
+          if (attempts >= maxAttempts) {
+            throw err
+          }
+          console.warn("Profile fetch timed out, retrying...")
+        }
+      }
+
       console.log("Profile fetch response:", { data, error })
       if (error) {
         console.log("Profile fetch error:", error.message)
         if (error.code === "PGRST116" || error.message.includes('relation "public.profiles" does not exist')) {
           console.log("Profiles table doesn't exist, using default profile")
-          setProfile({
+          let profile: Profile = {
             id: userId,
             email: user?.email || "",
             full_name: user?.user_metadata?.full_name || null,
@@ -48,8 +74,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             avatar_url: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
-          })
-          return
+          }
+          setProfile(profile)
+          return profile
         }
         throw error
       }
@@ -58,14 +85,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error("Error fetching profile:", error)
       setProfile(null)
-    } finally {
-      setLoading(false)
     }
   }
 
   const refreshProfile = async () => {
     if (user) {
-      await fetchProfile(user.id)
+      return await fetchProfile(user.id)
     }
   }
 
@@ -88,10 +113,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       alert("Sign out failed: " + (error.message || error))
       return
     }
-    console.log("User signed out, redirecting to login")
+    console.log("User signed out, redirecting to sign in page")
     setUser(null)
     setProfile(null)
-    window.location.href = "/auth/login"
+    window.location.href = "/auth/sign-in"
   }
 
   useEffect(() => {

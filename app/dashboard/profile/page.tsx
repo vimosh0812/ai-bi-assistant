@@ -12,9 +12,10 @@ import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/hooks/use-auth"
 import { createClient } from "@/lib/supabase/client"
 import { Camera, Save, LogOut } from "lucide-react"
+import { signOutAction } from "@/app/actions"
 
 export default function ProfilePage() {
-  const { profile, refreshProfile, signOut } = useAuth()
+  const { profile, refreshProfile } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [fullName, setFullName] = useState(profile?.full_name || "")
   const [error, setError] = useState<string | null>(null)
@@ -41,13 +42,6 @@ export default function ProfilePage() {
       setError(error instanceof Error ? error.message : "An error occurred")
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  // Sign out
-  const handleSignOut = async () => {
-    if (confirm("Are you sure you want to sign out?")) {
-      await signOut()
     }
   }
 
@@ -238,10 +232,12 @@ const handleUploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
 
         {/* Sign Out Button */}
         <div className="mt-6 flex justify-end">
-          <Button variant="destructive" onClick={handleSignOut}>
-            <LogOut className="mr-2 h-4 w-4" />
-            Sign Out
-          </Button>
+          <form action={signOutAction}>
+            <Button variant="destructive" onClick={signOutAction}>
+              <LogOut className="mr-2 h-4 w-4" />
+              Sign Out
+            </Button>
+          </form>
         </div>
       </div>
     </DashboardLayout>

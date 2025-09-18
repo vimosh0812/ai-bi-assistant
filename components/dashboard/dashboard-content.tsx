@@ -78,10 +78,11 @@ export function DashboardContent() {
     setViewingFile(null)
   }
 
+ 
   // ---------------- FOLDER VIEW ----------------
   if (!selectedFolder) {
+    console.log("Rendering folder view");
     return (
-      <div className="min-h-screen bg-background">
         <div className="container mx-auto p-6">
           <div className="flex items-center justify-between mb-8">
             <div>
@@ -130,13 +131,11 @@ export function DashboardContent() {
             folder={editingFolder}
           />
         </div>
-      </div>
     )
   }
 
   // ---------------- FILE VIEW ----------------
   return (
-    <div className="min-h-screen bg-background">
       <div className="container mx-auto p-6">
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center space-x-4">
@@ -190,6 +189,5 @@ export function DashboardContent() {
 
         {chatbotFile && <CSVChatbot file={chatbotFile} onClose={handleCloseChatbot} onViewData={handleViewData} />}
       </div>
-    </div>
   )
 }
