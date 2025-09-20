@@ -13,9 +13,11 @@ interface Message {
   role: "user" | "assistant"
   content: string
   sql?: string
+  preprocessing?: string
   result?: any
   sqlError?: string
   chartData?: any
+  intent?: string
   timestamp: Date
 }
 
@@ -33,12 +35,11 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
 
   useEffect(() => {
     if (file) {
-      // Initialize with welcome message
       setMessages([
         {
           id: "1",
           role: "assistant",
-          content: `Hello! I'm here to help you analyze the data in "${file.name}". You can ask me questions about the data, request summaries, or ask for specific insights. I can also suggest Tableau visualizations for your data. What would you like to know?`,
+          content: `Hello! I'm here to help you analyze the data in "${file.name}". You can ask questions, request summaries, preprocessing, or charts. What would you like to know?`,
           timestamp: new Date(),
         },
       ])
@@ -48,7 +49,6 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
   }, [file])
 
   useEffect(() => {
-    // Scroll to bottom when new messages are added
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
@@ -70,20 +70,16 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
     try {
       const response = await fetch("/api/chat-csv", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: input.trim(),
           fileId: file.id,
           tableName: file.table_name,
-          messages: messages.slice(-10), // Send last 10 messages for context
+          messages: messages.slice(-10), // last 10 messages
         }),
       })
 
-      if (!response.ok) {
-        throw new Error("Failed to get response")
-      }
+      if (!response.ok) throw new Error("Failed to get response")
 
       const data = await response.json()
 
@@ -92,9 +88,11 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
         role: "assistant",
         content: data.explanation || "No response from assistant.",
         sql: data.sql || undefined,
+        preprocessing: data.preprocessing || undefined,
         result: data.result || undefined,
         sqlError: data.sqlError || undefined,
         chartData: data.chartData || undefined,
+        intent: data.intent || undefined,
         timestamp: new Date(),
       }
 
@@ -139,7 +137,10 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.map((message) => (
-            <div key={message.id} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div
+              key={message.id}
+              className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
+            >
               <div className={`flex gap-3 max-w-[80%] ${message.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
                 <div
                   className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
@@ -159,15 +160,29 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
                 >
                   <p className="text-sm whitespace-pre-wrap">{message.content}</p>
 
+                  {message.intent && (
+                    <div className="mt-2 p-2 bg-purple-50 dark:bg-purple-900/20 rounded text-xs">
+                      <p className="font-semibold mb-1">Detected Intent:</p>
+                      <span className="text-xs">{message.intent}</span>
+                    </div>
+                  )}
+
+                  {message.preprocessing && (
+                    <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-xs">
+                      <p className="font-semibold mb-1">Preprocessing SQL (Temporary):</p>
+                      <code className="text-xs">{message.preprocessing}</code>
+                    </div>
+                  )}
+
                   {message.sql && (
-                    <div className="mt-3 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs">
+                    <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs">
                       <p className="font-semibold mb-1">SQL Used:</p>
                       <code className="text-xs">{message.sql}</code>
                     </div>
                   )}
 
                   {message.result && (
-                    <div className="mt-3 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs">
+                    <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs">
                       <p className="font-semibold mb-1">SQL Results:</p>
                       <div className="max-h-32 overflow-y-auto">
                         {Array.isArray(message.result) ? (
@@ -191,7 +206,7 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
                   )}
 
                   {message.sqlError && (
-                    <div className="mt-3 p-2 bg-red-50 dark:bg-red-900/20 rounded text-xs">
+                    <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded text-xs">
                       <p className="font-semibold mb-1 text-red-600">SQL Error:</p>
                       <code className="text-xs text-red-600">{message.sqlError}</code>
                     </div>
@@ -210,6 +225,7 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
               </div>
             </div>
           ))}
+
           {isLoading && (
             <div className="flex gap-3 justify-start">
               <div className="flex gap-3 max-w-[80%]">
