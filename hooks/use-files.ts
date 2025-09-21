@@ -1,11 +1,11 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
 import type { File } from "@/types/database"
 import { useToast } from "@/hooks/use-toast"
-import { se } from "date-fns/locale"
 
+// --- Simple CSV parser ---
 function parseCSV(csvText: string) {
   const lines = csvText.split(/\r?\n/).filter((line) => line.trim())
   const result: string[][] = []
@@ -22,7 +22,7 @@ function parseCSV(csvText: string) {
       if (char === '"') {
         if (inQuotes && nextChar === '"') {
           current += '"'
-          i++ // Skip next quote
+          i++ // Skip escaped quote
         } else {
           inQuotes = !inQuotes
         }
@@ -47,8 +47,10 @@ export function useFiles(folderId?: string) {
   const supabase = createClient()
   const { toast } = useToast()
 
-  const fetchFiles = async () => {
+  // ✅ Fetch Files (memoized)
+  const fetchFiles = useCallback(async () => {
     if (!folderId) {
+      console.warn("No folderId passed → skipping fetch")
       setFiles([])
       setLoading(false)
       return
@@ -70,7 +72,6 @@ export function useFiles(folderId?: string) {
       } else {
         setFiles(data || [])
       }
-      setLoading(false)
     } catch (error) {
       console.error("Error fetching files:", error)
       toast({
@@ -81,44 +82,48 @@ export function useFiles(folderId?: string) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [folderId, supabase, toast])
 
-  const uploadFile = async (data: { name: string; description: string; file: File }) => {
-    if (!folderId) return
+  // ✅ Upload File
+  const uploadFile = async (payload: { name: string; description: string; file: File }) => {
+    if (!folderId) {
+      console.error("uploadFile aborted → folderId is missing")
+      toast({ title: "Error", description: "No folder selected", variant: "destructive" })
+      return
+    }
 
     try {
-      const { data: user } = await supabase.auth.getUser()
-      if (!user.user) throw new Error("Not authenticated")
+      console.log("[uploadFile] Triggered with payload:", payload.name, payload.description)
 
-      // Generate unique table name for CSV data
+      const { data: auth } = await supabase.auth.getUser()
+      if (!auth.user) throw new Error("Not authenticated")
+
       const tableName = `csv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      console.log("[uploadFile] Generated table:", tableName)
 
-      const csvText = await data.file.text()
+      const csvText = await payload.file.text()
       const parsedRows = parseCSV(typeof csvText === "string" ? csvText : String(csvText))
 
-      if (parsedRows.length === 0) {
-        throw new Error("CSV file is empty")
-      }
+      if (parsedRows.length === 0) throw new Error("CSV file is empty")
 
       const headers = parsedRows[0].map((h) => h.replace(/"/g, "").trim())
-      const dataRows = parsedRows.slice(1)
+      const dataRows = parsedRows.slice(1).filter((row) => row.length === headers.length)
 
-      console.log("[v0] Parsed CSV:", {
+      console.log("[uploadFile] Parsed CSV:", {
         headerCount: headers.length,
-        dataRowCount: dataRows.length,
-        headers: headers,
-        firstRow: dataRows[0],
+        validRowCount: dataRows.length,
+        droppedRows: parsedRows.length - 1 - dataRows.length,
       })
 
-      // Create the file record first
+      // Insert file metadata first
       const { data: newFile, error: fileError } = await supabase
         .from("files")
         .insert([
           {
-            name: data.name,
-            description: data.description,
+            name: payload.name,
+            description: payload.description,
             folder_id: folderId,
-            user_id: user.user.id,
+            user_id: auth.user.id,
             table_name: tableName,
           },
         ])
@@ -128,21 +133,18 @@ export function useFiles(folderId?: string) {
       if (fileError) throw fileError
 
       const csvData = dataRows.map((row) => {
-        const obj: any = {}
-        headers.forEach((header, index) => {
-          obj[header] = row[index] || ""
-        })
+        const obj: Record<string, string> = {}
+        headers.forEach((header, index) => (obj[header] = row[index] || ""))
         return obj
       })
 
-      console.log("[v0] Sending to API:", {
+      console.log("[uploadFile] Sending to API:", {
         tableName,
         headers,
         dataCount: csvData.length,
-        sampleData: csvData.slice(0, 2),
+        sampleRow: csvData[0],
       })
 
-      // Call the CSV storage API route
       const response = await fetch("/api/store-csv", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -160,7 +162,7 @@ export function useFiles(folderId?: string) {
       }
 
       const result = await response.json()
-      console.log("[v0] API Response:", result)
+      console.log("[uploadFile] API Response:", result)
 
       setFiles((prev) => [newFile, ...prev])
       toast({
@@ -180,14 +182,9 @@ export function useFiles(folderId?: string) {
   const deleteFile = async (id: string) => {
     try {
       const { error } = await supabase.from("files").delete().eq("id", id)
-
       if (error) throw error
-
       setFiles((prev) => prev.filter((file) => file.id !== id))
-      toast({
-        title: "Success",
-        description: "File deleted successfully",
-      })
+      toast({ title: "Success", description: "File deleted successfully" })
     } catch (error) {
       console.error("Error deleting file:", error)
       toast({
@@ -199,14 +196,9 @@ export function useFiles(folderId?: string) {
   }
 
   useEffect(() => {
+    console.log("useFiles → folderId changed:", folderId)
     fetchFiles()
-  }, [folderId])
+  }, [folderId, fetchFiles])
 
-  return {
-    files,
-    loading,
-    uploadFile,
-    deleteFile,
-    refetch: fetchFiles,
-  }
+  return { files, loading, uploadFile, deleteFile, refetch: fetchFiles }
 }
