@@ -12,9 +12,10 @@ import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/hooks/use-auth"
 import { createClient } from "@/lib/supabase/client"
 import { Camera, Save, LogOut } from "lucide-react"
+import { signOutAction } from "@/app/actions"
 
 export default function ProfilePage() {
-  const { profile, refreshProfile, signOut } = useAuth()
+  const { profile, refreshProfile } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [fullName, setFullName] = useState(profile?.full_name || "")
   const [error, setError] = useState<string | null>(null)
@@ -44,13 +45,6 @@ export default function ProfilePage() {
     }
   }
 
-  // Sign out
-  const handleSignOut = async () => {
-    if (confirm("Are you sure you want to sign out?")) {
-      await signOut()
-    }
-  }
-
 const handleUploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
   if (!e.target.files || e.target.files.length === 0) return
   const file = e.target.files[0]
@@ -59,57 +53,53 @@ const handleUploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
   setError(null)
   setSuccess(null)
 
+  const filename = `${profile?.id}/avatar-${Date.now()}-${file.name}`
+
   try {
-    if (!profile) throw new Error("Profile not found")
-
-    const bucketName = "avatars"
-
-    // Check if bucket exists
-    const { data: buckets } = await supabase.storage.listBuckets()
-    const bucketExists = buckets?.some((b) => b.name === bucketName)
-    console.log("Existing buckets:", buckets)
-    
-
-    if (!bucketExists) {
-      throw new Error(
-        `Storage bucket "${bucketName}" does not exist. Please create it in Supabase dashboard.`
-      )
+    // Upload to Supabase Storage
+    const { data, error } = await supabase.storage
+      .from("avatars")
+      .upload(filename, file, {
+        cacheControl: "3600",
+        upsert: true,
+      })
+    if (error) {
+      setError(error.message)
+      setUploading(false)
+      return
     }
-
-    // Make a unique file name
-    const fileName = `${profile.id}-${Date.now()}-${file.name}`
-
-    // Upload file
-    const { error: uploadError } = await supabase.storage
-      .from(bucketName)
-      .upload(fileName, file, { upsert: true })
-
-    if (uploadError) throw uploadError
-
+    console.log("Upload data:", data)
     // Get public URL
-    const { data: publicUrlData } = supabase.storage
-      .from(bucketName)
-      .getPublicUrl(fileName)
-
-    if (!publicUrlData?.publicUrl) throw new Error("Could not get public URL")
-
-    // Update profile
+    const { data: urlData } = supabase.storage
+      .from("avatars")
+      .getPublicUrl(filename)
+    const publicUrl = urlData?.publicUrl
+    console.log("Public URL:", publicUrl)
+    if (!publicUrl) {
+      setError("Failed to get avatar URL")
+      setUploading(false)
+      return
+    }
+    
+    // Update profile with avatar URL
     const { error: updateError } = await supabase
       .from("profiles")
-      .update({ avatar_url: publicUrlData.publicUrl })
-      .eq("id", profile.id)
-
-    if (updateError) throw updateError
-
+      .update({ avatar_url: publicUrl })
+      .eq("id", profile?.id)
+    console.log("Profile update error:", updateError)
+    if (updateError) {
+      setError(updateError.message)
+      setUploading(false)
+      return
+    }
+    setSuccess("Avatar uploaded successfully!")
     await refreshProfile()
-    setSuccess("Avatar updated successfully!")
   } catch (error: unknown) {
-    setError(error instanceof Error ? error.message : "An error occurred")
+    setError(error instanceof Error ? error.message : "An error occurred during upload")
   } finally {
     setUploading(false)
   }
 }
-
   if (!profile) {
     return (
       <DashboardLayout>
@@ -142,9 +132,15 @@ const handleUploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
                   <Avatar className="h-24 w-24">
                     <AvatarImage src={profile.avatar_url || ""} />
                     <AvatarFallback>
-                      {profile.full_name
-                        ? profile.full_name.split(" ").map((n) => n[0]).join("").toUpperCase()
-                        : profile.email?.[0]?.toUpperCase() ?? "?"}
+                      {uploading ? (
+                        <span className="flex items-center justify-center h-full w-full">
+                          <span className="animate-spin h-6 w-6 border-4 border-gray-300 border-t-primary rounded-full inline-block" />
+                        </span>
+                      ) : (
+                        profile.full_name
+                          ? profile.full_name.split(" ").map((n) => n[0]).join("").toUpperCase()
+                          : profile.email?.[0]?.toUpperCase() ?? "?"
+                      )}
                     </AvatarFallback>
                   </Avatar>
                   {/* Upload Button */}
@@ -161,9 +157,9 @@ const handleUploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
                   </Badge>
                 </div>
               </div>
-              {uploading && <p className="text-sm text-muted-foreground mt-2">Uploading avatar...</p>}
+              {/* {uploading && <p className="text-sm text-muted-foreground mt-2">Uploading avatar...</p>}
               {error && <p className="text-sm text-destructive mt-2">{error}</p>}
-              {success && <p className="text-sm text-green-600 mt-2">{success}</p>}
+              {success && <p className="text-sm text-green-600 mt-2">{success}</p>} */}
             </CardContent>
           </Card>
 
@@ -236,10 +232,12 @@ const handleUploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
 
         {/* Sign Out Button */}
         <div className="mt-6 flex justify-end">
-          <Button variant="destructive" onClick={handleSignOut}>
-            <LogOut className="mr-2 h-4 w-4" />
-            Sign Out
-          </Button>
+          <form action={signOutAction}>
+            <Button variant="destructive" onClick={signOutAction}>
+              <LogOut className="mr-2 h-4 w-4" />
+              Sign Out
+            </Button>
+          </form>
         </div>
       </div>
     </DashboardLayout>

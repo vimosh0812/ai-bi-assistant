@@ -1,41 +1,22 @@
-"use client"
-
 import type React from "react"
-
-import { useAuth } from "@/hooks/use-auth"
-import { Sidebar } from "@/components/navigation/sidebar"
-import { TopNav } from "@/components/navigation/top-nav"
-import { useRouter } from "next/navigation"
-import { useEffect } from "react"
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { Sidebar } from "@/components/navigation/sidebar";
+import { TopNav } from "@/components/navigation/top-nav";
 
 interface DashboardLayoutProps {
   children: React.ReactNode
 }
+export async function DashboardLayout({ children }: DashboardLayoutProps) {
+  // const supabase = await createClient();
 
-export function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { user, profile, loading } = useAuth()
-  const router = useRouter()
+  // const {
+  //   data: { user },
+  // } = await supabase.auth.getUser();
 
-  useEffect(() => {
-    if (!loading && !user) {
-      router.push("/auth/login")
-    }
-  }, [user, loading, router])
-
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!user || !profile) {
-    return null
-  }
+  // if (!user) {
+  //   return redirect("/auth/sign-in");
+  // }
 
   return (
     <div className="flex h-screen bg-background">

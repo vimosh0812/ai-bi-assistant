@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { BarChart3, Users, Settings, Home, Database, TrendingUp, Shield, LogOut, User, ChevronDown } from "lucide-react"
+import { BarChart3, Users, Settings, Home, Database, TrendingUp, Shield, LogOut, User, ChevronDown , Crown} from "lucide-react"
 
 interface NavItem {
   title: string
@@ -59,13 +59,12 @@ const navItems: NavItem[] = [
     roles: ["admin"],
     badge: "Admin",
   },
-  // {
-  //   title: "System Settings",
-  //   href: "/dashboard/settings",
-  //   icon: Shield,
-  //   roles: ["admin"],
-  //   badge: "Admin",
-  // },
+  {
+    title: "Billing",
+    href: "/dashboard/payments",
+    icon: Crown,
+    roles: ["admin", "user"],
+  },
   {
     title: "Profile Settings",
     href: "/dashboard/profile",
@@ -75,11 +74,59 @@ const navItems: NavItem[] = [
 ]
 
 export function Sidebar() {
-  const { user, profile, signOut } = useAuth()
+  const { user, profile, loading, signOut } = useAuth()
   const pathname = usePathname()
 
-  if (!user || !profile) {
+  // Show loading skeleton while auth is initializing
+  if (loading) {
+    return (
+      <div className="flex h-full w-64 flex-col bg-card border-r border-border">
+        <div className="flex h-16 items-center justify-between px-6 border-b border-border">
+          <div className="flex items-center space-x-2">
+            <div className="h-8 w-8 rounded-lg bg-muted animate-pulse" />
+            <div className="h-4 w-32 bg-muted rounded animate-pulse" />
+          </div>
+        </div>
+        <div className="flex-1 p-4 space-y-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-10 bg-muted rounded animate-pulse" />
+          ))}
+        </div>
+        <div className="border-t border-border p-4">
+          <div className="flex items-center space-x-3">
+            <div className="h-8 w-8 rounded-full bg-muted animate-pulse" />
+            <div className="flex-1 space-y-1">
+              <div className="h-3 w-20 bg-muted rounded animate-pulse" />
+              <div className="h-2 w-32 bg-muted rounded animate-pulse" />
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Don't render if no user (should redirect via middleware)
+  if (!user) {
     return null
+  }
+
+  // If user exists but no profile, show minimal sidebar
+  if (!profile) {
+    return (
+      <div className="flex h-full w-64 flex-col bg-card border-r border-border">
+        <div className="flex h-16 items-center justify-between px-6 border-b border-border">
+          <div className="flex items-center space-x-2">
+            <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
+              <BarChart3 className="h-5 w-5 text-primary-foreground" />
+            </div>
+            <span className="font-semibold text-lg">AI BI Platform</span>
+          </div>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-muted-foreground">Loading profile...</p>
+        </div>
+      </div>
+    )
   }
 
   const filteredNavItems = navItems.filter((item) => item.roles.includes(profile.role))

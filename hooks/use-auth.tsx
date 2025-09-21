@@ -20,7 +20,7 @@ interface AuthContextType {
   profile: Profile | null
   loading: boolean
   signOut: () => Promise<void>
-  refreshProfile: () => Promise<void>
+  refreshProfile: () => Promise<Profile | null | undefined>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -31,91 +31,181 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
-  const fetchProfile = async (userId: string) => {
-    try {
-      console.log("[v0] Fetching profile for user:", userId)
-      const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single()
+  const createProfileIfNotExists = async (userId: string, email: string, fullName?: string): Promise<Profile> => {
+    const newProfile: Profile = {
+      id: userId,
+      email: email,
+      full_name: fullName || null,
+      role: "user",
+      avatar_url: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
 
-      if (error) {
-        console.log("[v0] Profile fetch error:", error.message)
-        if (error.code === "PGRST116" || error.message.includes('relation "public.profiles" does not exist')) {
-          console.log("[v0] Profiles table doesn't exist, using default profile")
-          setProfile({
-            id: userId,
-            email: user?.email || "",
-            full_name: user?.user_metadata?.full_name || null,
-            role: "user",
-            avatar_url: null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          return
-        }
-        throw error
+    try {
+      // Try to insert the profile into the database
+      const { error: insertError } = await supabase
+        .from("profiles")
+        .insert([newProfile])
+        .select()
+        .single()
+
+      if (insertError && insertError.code !== "23505") { // 23505 is duplicate key error
+        console.warn("Failed to create profile in database:", insertError.message)
       }
-      console.log("[v0] Profile fetched successfully:", data)
-      setProfile(data)
     } catch (error) {
-      console.error("[v0] Error fetching profile:", error)
+      console.warn("Database profile creation failed, using local profile:", error)
+    }
+
+    return newProfile
+  }
+
+  const fetchProfile = async (userId: string, userEmail?: string, userFullName?: string): Promise<Profile | null> => {
+    try {
+      // First attempt: Try to fetch existing profile
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .single()
+
+      if (data) {
+        setProfile(data)
+        return data
+      }
+
+      // If profile doesn't exist, handle different error cases
+      if (error) {
+        if (error.code === "PGRST116" || error.message.includes('relation "public.profiles" does not exist')) {
+          // Table doesn't exist - create local profile
+          const fallbackProfile = await createProfileIfNotExists(userId, userEmail || "", userFullName)
+          setProfile(fallbackProfile)
+          return fallbackProfile
+        }
+
+        if (error.code === "PGRST104") {
+          // Profile not found - wait a bit then try to create new profile
+          // Sometimes the database trigger needs a moment to create the profile
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          
+          // Try fetching once more in case the trigger created it
+          const { data: retryData } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", userId)
+            .single()
+          
+          if (retryData) {
+            setProfile(retryData)
+            return retryData
+          }
+          
+          // Still not found, create new profile
+          const newProfile = await createProfileIfNotExists(userId, userEmail || "", userFullName)
+          setProfile(newProfile)
+          return newProfile
+        }
+      }
+
+      // For other errors, try to create profile anyway
+      if (userEmail) {
+        const newProfile = await createProfileIfNotExists(userId, userEmail, userFullName)
+        setProfile(newProfile)
+        return newProfile
+      }
+
+      throw new Error("Unable to fetch or create profile")
+    } catch (error) {
+      console.error("Error in fetchProfile:", error)
       setProfile(null)
+      return null
     }
   }
 
   const refreshProfile = async () => {
     if (user) {
-      await fetchProfile(user.id)
+      return await fetchProfile(user.id, user.email, user.user_metadata?.full_name)
     }
   }
 
   const signOut = async () => {
-    console.log("Signing out user")
-    const { error } = await supabase.auth.signOut()
-    if (error) {
+    try {
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
+      
+      setUser(null)
+      setProfile(null)
+      window.location.href = "/auth/sign-in"
+    } catch (error: any) {
       console.error("Sign out error:", error.message)
-      return
+      // Still clear local state and redirect even if server sign out fails
+      setUser(null)
+      setProfile(null)
+      window.location.href = "/auth/sign-in"
     }
-    console.log("User signed out, redirecting to login")
-    window.location.href = "/auth/login"
-    setUser(null)
-    setProfile(null)
-
   }
 
   useEffect(() => {
-    console.log("[v0] Initializing auth state")
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log("[v0] Initial session:", session?.user?.email || "No user")
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        fetchProfile(session.user.id)
-      } else {
-        setLoading(false)
-      }
-    })
+    let mounted = true
 
-    // Listen for auth changes
+    const initializeAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        
+        if (!mounted) return
+
+        setUser(session?.user ?? null)
+        
+        if (session?.user) {
+          await fetchProfile(
+            session.user.id, 
+            session.user.email, 
+            session.user.user_metadata?.full_name
+          )
+        }
+      } catch (error) {
+        console.error("Error initializing auth:", error)
+      } finally {
+        if (mounted) {
+          setLoading(false)
+        }
+      }
+    }
+
+    initializeAuth()
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("[v0] Auth state changed:", event, session?.user?.email || "No user")
+      if (!mounted) return
+
       setUser(session?.user ?? null)
 
       if (session?.user) {
-        await fetchProfile(session.user.id)
+        try {
+          await fetchProfile(
+            session.user.id, 
+            session.user.email, 
+            session.user.user_metadata?.full_name
+          )
+        } catch (error) {
+          console.error("Error fetching profile on auth change:", error)
+        }
       } else {
         setProfile(null)
       }
+      
       setLoading(false)
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
   }, [])
 
   useEffect(() => {
-    if (!user || !profile) return
-
-    console.log("[v0] Setting up real-time profile subscription for user:", user.id)
+    if (!user?.id) return
 
     const profileSubscription = supabase
       .channel(`profile-${user.id}`)
@@ -128,21 +218,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           filter: `id=eq.${user.id}`,
         },
         (payload) => {
-          console.log("[v0] Profile updated in real-time:", payload)
           if (payload.eventType === "UPDATE" && payload.new) {
             setProfile(payload.new as Profile)
           }
         },
       )
-      .subscribe((status) => {
-        console.log("[v0] Profile subscription status:", status)
-      })
+      .subscribe()
 
     return () => {
-      console.log("[v0] Cleaning up profile subscription")
       supabase.removeChannel(profileSubscription)
     }
-  }, [user, profile])
+  }, [user?.id])
 
   return (
     <AuthContext.Provider

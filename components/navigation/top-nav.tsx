@@ -17,10 +17,54 @@ import Link from "next/link"
 import { LogOut, User, Bell } from "lucide-react"
 
 export function TopNav() {
-  const { user, profile, signOut } = useAuth()
+  const { user, profile, loading, signOut } = useAuth()
 
-  if (!user || !profile) {
+  // Show loading state
+  if (loading) {
+    return (
+      <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="flex h-16 items-center justify-between px-4 md:px-6">
+          <div className="flex items-center space-x-4">
+            <MobileNav />
+            <div className="hidden md:block space-y-1">
+              <div className="h-5 w-48 bg-muted rounded animate-pulse" />
+              <div className="h-4 w-64 bg-muted rounded animate-pulse" />
+            </div>
+          </div>
+          <div className="flex items-center space-x-4">
+            <div className="h-8 w-8 bg-muted rounded animate-pulse" />
+            <div className="h-10 w-10 bg-muted rounded-full animate-pulse" />
+          </div>
+        </div>
+      </header>
+    )
+  }
+
+  // Don't render if no user (should redirect via middleware)
+  if (!user) {
     return null
+  }
+
+  // If user exists but no profile, show basic top nav
+  if (!profile) {
+    return (
+      <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="flex h-16 items-center justify-between px-4 md:px-6">
+          <div className="flex items-center space-x-4">
+            <MobileNav />
+            <div className="hidden md:block">
+              <h1 className="text-lg font-semibold">Loading...</h1>
+              <p className="text-sm text-muted-foreground">Setting up your profile</p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-4">
+            <Button variant="ghost" size="icon">
+              <Bell className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </header>
+    )
   }
 
   const handleSignOut = async () => {
@@ -49,7 +93,7 @@ export function TopNav() {
           </Button>
           {/* User Menu */}
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <DropdownMenuTrigger>
               <Button
                 variant="ghost"
                 className="flex items-center justify-center h-10 w-10 rounded-full p-0"
