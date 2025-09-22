@@ -54,8 +54,8 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
   const [isDataProcessed, setIsDataProcessed] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [sampleRows, setSampleRows] = useState<Record<string, any>[]>([])
+  const [uploading, setUploading] = useState(false)
 
-  /** ✅ FIXED CSV parsing with PapaParse */
   const parseCSV = async (file: File) => {
     const text = await file.text()
     return new Promise<{ headers: string[]; rows: Record<string, any>[] }>((resolve) => {
@@ -267,6 +267,7 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     console.log({ name, file, length: processedData.length })
     if (!name || !file || !processedData.length) return
     console.log("thaandave illa")
+    setUploading(true)
 
     const csvContent = convertToCSV(modifiedHeaders, processedData)
     const csvFile = new File([csvContent], `${name}.csv`, { type: "text/csv" })
@@ -288,6 +289,7 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     setProcessedData([])
     setIsDataProcessed(false)
     setIsProcessing(false)
+    setUploading(false)
   }
 
   /** Drag & drop handlers */
@@ -412,7 +414,7 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
             )}
 
             <div className="flex justify-end gap-3">
-              <Button type="submit" disabled={!file || !name.trim()}>
+              <Button type="submit" disabled={!file || !name.trim() || uploading}>
                 Upload File
               </Button>
             </div>

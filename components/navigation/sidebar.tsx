@@ -34,43 +34,43 @@ const navItems: NavItem[] = [
     icon: Home,
     roles: ["admin", "user"],
   },
-  {
-    title: "Analytics",
-    href: "/dashboard/analytics",
-    icon: BarChart3,
-    roles: ["admin", "user"],
-  },
   // {
-  //   title: "Reports",
-  //   href: "/dashboard/reports",
-  //   icon: TrendingUp,
+  //   title: "Analytics",
+  //   href: "/dashboard/analytics",
+  //   icon: BarChart3,
+  //   roles: ["admin", "user"],
+  // },
+  // // {
+  // //   title: "Reports",
+  // //   href: "/dashboard/reports",
+  // //   icon: TrendingUp,
+  // //   roles: ["admin", "user"],
+  // // },
+  // // {
+  // //   title: "Data Sources",
+  // //   href: "/dashboard/data-sources",
+  // //   icon: Database,
+  // //   roles: ["admin", "user"],
+  // // },
+  // {
+  //   title: "User Management",
+  //   href: "/dashboard/users",
+  //   icon: Users,
+  //   roles: ["admin"],
+  //   badge: "Admin",
+  // },
+  // {
+  //   title: "Billing",
+  //   href: "/dashboard/payments",
+  //   icon: Crown,
   //   roles: ["admin", "user"],
   // },
   // {
-  //   title: "Data Sources",
-  //   href: "/dashboard/data-sources",
-  //   icon: Database,
+  //   title: "Profile Settings",
+  //   href: "/dashboard/profile",
+  //   icon: Settings,
   //   roles: ["admin", "user"],
   // },
-  {
-    title: "User Management",
-    href: "/dashboard/users",
-    icon: Users,
-    roles: ["admin"],
-    badge: "Admin",
-  },
-  {
-    title: "Billing",
-    href: "/dashboard/payments",
-    icon: Crown,
-    roles: ["admin", "user"],
-  },
-  {
-    title: "Profile Settings",
-    href: "/dashboard/profile",
-    icon: Settings,
-    roles: ["admin", "user"],
-  },
 ]
 
 export function Sidebar() {
@@ -178,10 +178,10 @@ export function Sidebar() {
             <DropdownMenuLabel>My Account</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <Link href="/dashboard/profile" className="flex items-center">
+              {/* <Link href="/dashboard/profile" className="flex items-center"> */}
                 <User className="mr-2 h-4 w-4" />
                 Profile Settings
-              </Link>
+              {/* </Link> */}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem

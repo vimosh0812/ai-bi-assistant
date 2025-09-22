@@ -39,9 +39,9 @@ export default async function SignIn(props: { searchParams: Promise<Message> }) 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
-                <Link href="/auth/forgot-password" className="text-sm font-medium text-primary hover:underline">
+                {/* <Link href="/auth/forgot-password" className="text-sm font-medium text-primary hover:underline"> */}
                   Forgot password?
-                </Link>
+                {/* </Link> */}
               </div>
               <div className="relative">
                 <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />

@@ -30,38 +30,37 @@ export function useFolders() {
   }
 
   const createFolder = async (data: { name: string; description: string }) => {
-    try {
-      const { data: user } = await supabase.auth.getUser()
-      if (!user.user) throw new Error("Not authenticated")
+    console.log("useFolders: createFolder called", data)
 
+    try {
+      // Get current session
+      console.log("Fetching current session...")
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+      console.log("Session data:", sessionData)
+      if (sessionError) throw sessionError
+      if (!sessionData?.session?.user) throw new Error("Not authenticated")
+      
+      const userId = sessionData.session.user.id
+      console.log("Authenticated user:", userId)
+
+      // Insert folder
       const { data: newFolder, error } = await supabase
         .from("folders")
-        .insert([
-          {
-            name: data.name,
-            description: data.description,
-            user_id: user.user.id,
-          },
-        ])
+        .insert([{ name: data.name, description: data.description, user_id: userId }])
         .select()
         .single()
 
       if (error) throw error
+      console.log("Folder created:", newFolder)
 
+      // Update local state
       setFolders((prev) => [newFolder, ...prev])
-      toast({
-        title: "Success",
-        description: "Folder created successfully",
-      })
-    } catch (error) {
-      console.error("Error creating folder:", error)
-      toast({
-        title: "Error",
-        description: "Failed to create folder",
-        variant: "destructive",
-      })
+    } catch (error: any) {
+      console.error("Error creating folder:", error.message || error)
+      throw error // Rethrow so calling component knows
     }
   }
+
 
   const updateFolder = async (id: string, data: { name: string; description: string }) => {
     try {

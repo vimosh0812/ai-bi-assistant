@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
+import { createServerSideClient } from "@/lib/supabase/server"
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Table name is required" }, { status: 400 })
     }
 
-    const supabase = await createClient()
+    const supabase = await createServerSideClient()
 
     // Verify user authentication
     const {

@@ -37,15 +37,25 @@ export function DashboardContent() {
   )
 
   const handleCreateFolder = async (data: { name: string; description: string }) => {
+    console.log("Creating folder...", data)
     setCreatingFolder(true)
-    if (editingFolder) {
-      await updateFolder(editingFolder.id, data)
-      setEditingFolder(null)
-    } else {
-      await createFolder(data)
+    try {
+      if (editingFolder) {
+        console.log("Updating folder", editingFolder.id)
+        await updateFolder(editingFolder.id, data)
+        setEditingFolder(null)
+      } else {
+        console.log("Creating new folder")
+        await createFolder(data)
+      }
+    } catch (err) {
+      console.error("Error in handleCreateFolder:", err)
+    } finally {
+      console.log("Finished folder create/update")
+      setCreatingFolder(false)
     }
-    setCreatingFolder(false)
   }
+
 
   const handleEditFolder = (folder: Folder) => {
     setEditingFolder(folder)
