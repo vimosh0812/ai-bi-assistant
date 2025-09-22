@@ -77,8 +77,7 @@ export function Sidebar() {
   const { user, profile, loading, signOut } = useAuth()
   const pathname = usePathname()
 
-  // Show loading skeleton while auth is initializing
-  if (loading) {
+  if (loading || !profile) {
     return (
       <div className="flex h-full w-64 flex-col bg-card border-r border-border">
         <div className="flex h-16 items-center justify-between px-6 border-b border-border">
@@ -105,28 +104,8 @@ export function Sidebar() {
     )
   }
 
-  // Don't render if no user (should redirect via middleware)
   if (!user) {
     return null
-  }
-
-  // If user exists but no profile, show minimal sidebar
-  if (!profile) {
-    return (
-      <div className="flex h-full w-64 flex-col bg-card border-r border-border">
-        <div className="flex h-16 items-center justify-between px-6 border-b border-border">
-          <div className="flex items-center space-x-2">
-            <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
-              <BarChart3 className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <span className="font-semibold text-lg">AI BI Platform</span>
-          </div>
-        </div>
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-muted-foreground">Loading profile...</p>
-        </div>
-      </div>
-    )
   }
 
   const filteredNavItems = navItems.filter((item) => item.roles.includes(profile.role))
