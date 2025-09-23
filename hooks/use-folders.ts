@@ -33,17 +33,19 @@ export function useFolders() {
     console.log("useFolders: createFolder called", data)
 
     try {
-      // Get current session
-      console.log("Fetching current session...")
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
-      console.log("Session data:", sessionData)
-      if (sessionError) throw sessionError
-      if (!sessionData?.session?.user) throw new Error("Not authenticated")
+      console.log("Fetching current user...")
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser()
+
+      console.log("User data:", user)
+      if (userError) throw userError
+      if (!user) throw new Error("Not authenticated")
       
-      const userId = sessionData.session.user.id
+      const userId = user.id
       console.log("Authenticated user:", userId)
 
-      // Insert folder
       const { data: newFolder, error } = await supabase
         .from("folders")
         .insert([{ name: data.name, description: data.description, user_id: userId }])
@@ -53,11 +55,10 @@ export function useFolders() {
       if (error) throw error
       console.log("Folder created:", newFolder)
 
-      // Update local state
       setFolders((prev) => [newFolder, ...prev])
     } catch (error: any) {
       console.error("Error creating folder:", error.message || error)
-      throw error // Rethrow so calling component knows
+      throw error
     }
   }
 
