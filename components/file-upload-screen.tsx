@@ -55,8 +55,9 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [sampleRows, setSampleRows] = useState<Record<string, any>[]>([])
   const [uploading, setUploading] = useState(false)
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1) // Step 1: Upload, Step 2: Summary, Step 3: Preprocessed
 
-  const parseCSV = async (file: File) => {
+  const parseCSV: (file: File) => Promise<{ headers: string[]; rows: Record<string, any>[] }> = async (file: File) => {
     const text = await file.text()
     return new Promise<{ headers: string[]; rows: Record<string, any>[] }>((resolve) => {
       Papa.parse(text, {
@@ -211,9 +212,7 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
 
     const { headers, rows } = await parseCSV(selectedFile)
     setModifiedHeaders(headers)
-    setProcessedData(rows) // initial full data before AI preprocessing
-
-    // Use only sample for AI summary
+    setProcessedData(rows)
     setSampleRows(rows.slice(0, 5))
 
     // Call AI summary
@@ -244,9 +243,6 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     
     setIsProcessing(true)
     
-    // Simulate processing delay for user feedback
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    
     const result = preprocessData(modifiedHeaders, processedData, {
       emailColumns: aiEmailColumns,
       currencyColumns: aiCurrencyColumns,
@@ -257,7 +253,25 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     
     setIsProcessing(false)
     setIsDataProcessed(true)
-    setAiSummary((prev) => prev + "\n\n✅ Data preprocessed and ready to submit.")
+    setAiSummary((prev) => prev)
+    setCurrentStep(3)
+  }
+
+  const handleNextToSummary = () => {
+    if (file && name.trim()) {
+      setCurrentStep(2)
+    }
+  }
+
+  /** Handle back to previous step */
+  const handleBackToPreviousStep = () => {
+    if (currentStep === 3) {
+      setCurrentStep(2)
+    } else if (currentStep === 2) {
+      setCurrentStep(1)
+    } else {
+      onBack()
+    }
   }
 
   /** Handle submit */
@@ -280,7 +294,6 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     })
     console.log("File submitted.")
 
-    // Reset
     setName("")
     setDescription("")
     setFile(null)
@@ -290,9 +303,9 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     setIsDataProcessed(false)
     setIsProcessing(false)
     setUploading(false)
+    setCurrentStep(1)
   }
 
-  /** Drag & drop handlers */
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -306,7 +319,6 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     handleFileChange(e.dataTransfer.files[0])
   }
 
-  /** Chart data based on preprocessed data */
   const pieData = processedData.length
     ? {
         labels: ["Duplicates", "Unique"],
@@ -344,205 +356,365 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     <div className="flex flex-col h-screen">
       {/* Header */}
       <div className="flex items-center px-4 py-3 border-b">
-        <Button variant="ghost" onClick={onBack} className="mr-3">
+        <Button variant="ghost" onClick={handleBackToPreviousStep} className="mr-3">
           <ArrowLeft className="h-4 w-4 mr-1" /> Back
         </Button>
-        <h1 className="text-xl font-semibold">Upload CSV</h1>
+        <h1 className="text-xl font-semibold">
+          {currentStep === 1 && "Upload CSV"}
+          {currentStep === 2 && "Data Summary"}
+          {currentStep === 3 && "Preprocessed Data"}
+        </h1>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left Form */}
-        <div className="w-[60%] p-6 overflow-auto border-r">
-          <form onSubmit={handleSubmit} className="grid gap-6">
-            <div
-              className={cn(
-                "border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors",
-                dragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25",
-                file ? "border-green-500 bg-green-50" : ""
-              )}
-              onDragEnter={handleDrag}
-              onDragLeave={handleDrag}
-              onDragOver={handleDrag}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv"
-                onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
-                className="hidden"
-              />
-              {file ? (
-                <div className="flex items-center justify-center space-x-2">
-                  <FileText className="h-8 w-8 text-green-600" />
-                  <div>
-                    <p className="font-medium">{file.name}</p>
-                    <p className="text-sm text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
+      {/* Step 1: File Upload */}
+      {currentStep === 1 && (
+        <div className="flex flex-col flex-1 overflow-hidden">
+          {/* Upload section - 30% height */}
+          <div className="flex-[3] p-6">
+            <form onSubmit={(e) => e.preventDefault()} className="grid gap-6 max-w-2xl mx-auto h-full">
+              <div
+                className={cn(
+                  "border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors h-full flex flex-col justify-center items-center",
+                  dragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25",
+                  file ? "border-green-500 bg-green-50" : ""
+                )}
+                onDragEnter={handleDrag}
+                onDragLeave={handleDrag}
+                onDragOver={handleDrag}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv"
+                  onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
+                  className="hidden"
+                />
+                {file ? (
+                  <div className="flex items-center justify-center space-x-2">
+                    <FileText className="h-8 w-8 text-green-600" />
+                    <div>
+                      <p className="font-medium">{file.name}</p>
+                      <p className="text-sm text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <Upload className="h-8 w-8 mx-auto text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">Drop your CSV file here or click to browse</p>
-                </div>
-              )}
-            </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Upload className="h-8 w-8 mx-auto text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">Drop your CSV file here or click to browse</p>
+                  </div>
+                )}
+              </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="name">File Name</Label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Enter file name"
-                required
-              />
-            </div>
-
-            {file && (
               <div className="grid gap-2">
-                <Label htmlFor="description">Meta Data</Label>
-                <Textarea
-                  id="description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Enter file description (optional)"
-                  rows={6}
+                <Label htmlFor="name">File Name</Label>
+                <Input
+                  id="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Enter file name"
+                  required
                 />
               </div>
-            )}
 
-            <div className="flex justify-end gap-3">
-              <Button type="submit" disabled={!file || !name.trim() || uploading}>
-                Upload File
-              </Button>
+              {file && (
+                <div className="grid gap-2">
+                  <Label htmlFor="description">Meta Data</Label>
+                  <Textarea
+                    id="description"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Enter file description (optional)"
+                    rows={3}
+                  />
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 mt-2">
+                <Button 
+                  type="button" 
+                  onClick={handleNextToSummary}
+                  disabled={!file || !name.trim() || loadingAI}
+                >
+                  {loadingAI ? "Processing..." : "Next"}
+                </Button>
+              </div>
+            </form>
+          </div>
+
+          {/* Preview section - 70% height */}
+          <div className="flex-[7] p-4 bg-white border-t flex flex-col">
+            <h3 className="font-semibold mb-2">Preview (First 20 Rows)</h3>
+            <div className="max-h-[400px] overflow-auto border rounded flex-1">
+              {processedData.length > 0 ? (
+                <table className="min-w-full table-auto text-sm">
+                  <thead className="bg-gray-100 sticky top-0">
+                    <tr>
+                      {modifiedHeaders.map((header) => (
+                        <th key={header} className="px-2 py-1 border">
+                          {header}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {processedData.slice(0, 20).map((row, idx) => (
+                      <tr key={idx} className={idx % 2 === 0 ? "bg-gray-50" : ""}>
+                        {modifiedHeaders.map((header) => (
+                          <td key={header} className="px-2 py-1 border">
+                            {row[header] ?? ""}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground">
+                  <span>No data loaded. Please upload a CSV file to preview.</span>
+                </div>
+              )}
             </div>
-          </form>
+          </div>
         </div>
+      )}
 
-        {/* Right Summary */}
-        <div className="w-[40%] p-6 bg-muted/30 flex flex-col">
-          <div className="overflow-auto flex-1 space-y-4">
-            {processedData.length > 0 && (
-              <div className="p-3 bg-white rounded shadow space-y-3">
-                <h3 className="font-semibold mb-2">Data Quality Summary</h3>
-                {(() => {
-                  const dq = generateDataQualitySummary(modifiedHeaders, processedData)
-                  return (
-                    <>
-                      <p>Total Rows: {dq.totalRows}</p>
-                      <p>Total Columns: {dq.totalColumns}</p>
-                      <p>Empty Rows: {dq.emptyRowCount}</p>
-                      <p>Duplicate Rows: {dq.duplicateCount}</p>
-                      <p>Rows with Missing Values: {dq.rowsWithMissingValues}</p>
-                        {aiEmailColumns.length > 0 && (
-                          <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
-                          <p className="text-yellow-800 text-sm font-medium">
-                            Email column(s) detected:
-                          </p>
-                          <ul className="list-disc ml-5 text-yellow-800 text-sm">
-                            {aiEmailColumns.map((col) => (
-                            <li key={col}>{col}</li>
-                            ))}
-                          </ul>
-                          </div>
-                        )}
+      {/* Step 2: Dashboard Summary */}
+      {currentStep === 2 && (
+        <div className="flex flex-col flex-1 overflow-auto p-6 bg-gray-50">
+          <h2 className="text-2xl font-bold mb-6">Data Quality Dashboard</h2>
 
-                        {aiCurrencyColumns.length > 0 && (
-                          <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
-                          <p className="text-yellow-800 text-sm font-medium">
-                            💰 Currency column(s) detected:
-                          </p>
-                          <ul className="list-disc ml-5 text-yellow-800 text-sm">
-                            {aiCurrencyColumns.map((col) => (
-                            <li key={col}>{col}</li>
-                            ))}
-                          </ul>
-                          </div>
-                        )}
+          {/* Top Metrics Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 mb-6">
+            {/* Total Rows */}
+            <div className="bg-white shadow rounded-lg p-4 flex flex-col justify-between">
+              <p className="text-gray-500 text-sm">Total Rows</p>
+              <p className="text-xl font-semibold">{generateDataQualitySummary(modifiedHeaders, processedData).totalRows}</p>
+            </div>
 
-                        {Object.values(dq.missingValueSummary).some((count) => count > 0) && (
-                        <div>
-                          <strong>Missing Values per Column:</strong>
-                          <ul className="list-disc ml-5">
-                            {Object.entries(dq.missingValueSummary)
-                              .filter(([_, count]) => count > 0)
-                              .map(([col, count]) => (
-                                <li key={col}>
-                                  {col}: {count}
-                                </li>
-                              ))}
-                          </ul>
-                        </div>
-                      )}
+            {/* Total Columns */}
+            <div className="bg-white shadow rounded-lg p-4 flex flex-col justify-between">
+              <p className="text-gray-500 text-sm">Total Columns</p>
+              <p className="text-xl font-semibold">{generateDataQualitySummary(modifiedHeaders, processedData).totalColumns}</p>
+            </div>
 
-                      {dq.lowValueColumns.length > 0 && (
-                        <div>Low-Value Columns: {dq.lowValueColumns.join(", ")}</div>
-                      )}
+            {/* Empty Rows */}
+            <div className="bg-white shadow rounded-lg p-4 flex flex-col justify-between">
+              <p className="text-gray-500 text-sm">Empty Rows</p>
+              <p className="text-xl font-semibold">{generateDataQualitySummary(modifiedHeaders, processedData).emptyRowCount}</p>
+            </div>
 
-                      {pieData && dq.duplicateCount > 0 && (
-                        <div className="mt-4" style={{ width: "60%" }}>
-                          <h4 className="font-medium mb-1">Duplicate Rows Pie</h4>
-                          <Pie data={pieData} />
-                        </div>
-                      )}
+            {/* Duplicate Rows */}
+            <div className="bg-white shadow rounded-lg p-4 flex flex-col justify-between">
+              <p className="text-gray-500 text-sm">Duplicate Rows</p>
+              <p className="text-xl font-semibold">{generateDataQualitySummary(modifiedHeaders, processedData).duplicateCount}</p>
+            </div>
 
-                      {barData && dq.rowsWithMissingValues > 0 && (
-                        <div className="mt-4">
-                          <h4 className="font-medium mb-1">Missing Values Bar</h4>
-                          <Bar data={barData} />
-                        </div>
-                        )}
+            {/* Rows with Missing Values */}
+            <div className="bg-white shadow rounded-lg p-4 flex flex-col justify-between">
+              <p className="text-gray-500 text-sm">Rows with Missing Values</p>
+              <p className="text-xl font-semibold">{generateDataQualitySummary(modifiedHeaders, processedData).rowsWithMissingValues}</p>
+            </div>
+          </div>
 
-                        {(
-                        !isDataProcessed &&
-                        (
-                          aiEmailColumns.length ||
-                          aiCurrencyColumns.length ||
-                          dq.lowValueColumns.length ||
-                          dq.duplicateCount > 0 ||
-                          dq.emptyRowCount > 0
-                        ) && loadingAI === false
-                        ) && (
-                        <Button 
-                          variant="outline" 
-                          onClick={handlePreprocess} 
-                          className="mt-3 flex items-center gap-2"
-                          disabled={isProcessing}
-                        >
-                          <Cpu className="h-4 w-4" /> 
-                          {isProcessing ? "Processing..." : "Preprocess Data"}
-                        </Button>
-                      )}
-
-                      {isDataProcessed && (
-                        <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded-md">
-                          <p className="text-green-800 text-sm font-medium">✅ Data preprocessed and ready to submit!</p>
-                        </div>
-                      )}
-                    </>
-                  )
-                })()}
+          {/* Charts Section */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            {/* Duplicate vs Unique Pie */}
+            {pieData && (
+              <div className="bg-white shadow rounded-lg p-4 flex flex-col h-full">
+                <h3 className="text-lg font-semibold mb-2">Duplicate vs Unique Rows</h3>
+                <div className="flex flex-col h-full">
+              <div className="h-48 flex items-center justify-center">
+                <Pie data={pieData} />
+              </div>
+              <div className="flex justify-between mt-4">
+                <div className="flex items-center gap-2">
+                  <span className="inline-block w-3 h-3 rounded-full" style={{ background: "#000" }} />
+                  <span className="text-sm">Duplicates</span>
+                  <span className="ml-2 font-semibold">
+                {pieData.datasets[0].data[0]}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-block w-3 h-3 rounded-full" style={{ background: "#0d6efd" }} />
+                  <span className="text-sm">Unique</span>
+                  <span className="ml-2 font-semibold">
+                {pieData.datasets[0].data[1]}
+                  </span>
+                </div>
+              </div>
+                </div>
               </div>
             )}
 
-            {/* AI Summary */}
-            {loadingAI ? (
-              <p className="text-muted-foreground">Loading AI summary...</p>
-            ) : (
-              aiSummary && (
-                <div className="p-3 bg-white rounded shadow">
-                  <h3 className="font-semibold mb-1 flex items-center gap-2">
-                    <Cpu className="h-4 w-4" /> AI Insight
-                  </h3>
-                  <p className="text-sm whitespace-pre-line">{aiSummary}</p>
+            {/* Missing Values Bar */}
+            {barData && (
+              <div className="bg-white shadow rounded-lg p-4">
+                <h3 className="text-lg font-semibold mb-2">Missing Values by Column</h3>
+                <div className="h-64 overflow-auto">
+                  <Bar data={barData} />
                 </div>
-              )
+              </div>
             )}
           </div>
+
+          {/* AI Summary Section */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            {aiEmailColumns.length > 0 && (
+              <div className="bg-white shadow rounded-lg p-6 flex flex-col h-full min-h-[220px]">
+                <h3 className="text-lg font-semibold mb-4">Email Columns Detected</h3>
+                <ul className="list-disc ml-5 text-sm flex-1">
+                  {aiEmailColumns.map((col) => (
+                    <li key={col}>{col}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {generateDataQualitySummary(modifiedHeaders, processedData).lowValueColumns.length > 0 && (
+              <div className="bg-white shadow rounded-lg p-6 flex flex-col h-full min-h-[220px]">
+                <h3 className="text-lg font-semibold mb-4">Low-Value Columns (&gt;30% missing)</h3>
+                <ul className="list-disc ml-5 text-sm flex-1">
+                  {generateDataQualitySummary(modifiedHeaders, processedData).lowValueColumns.map((col) => (
+                    <li key={col}>{col}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {aiCurrencyColumns.length > 0 && (
+              <div className="bg-white shadow rounded-lg p-6 flex flex-col h-full min-h-[220px]">
+                <h3 className="text-lg font-semibold mb-4">💰 Currency Columns Detected</h3>
+                <ul className="list-disc ml-5 text-sm flex-1">
+                  {aiCurrencyColumns.map((col) => (
+                    <li key={col}>{col}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              onClick={handlePreprocess}
+              className="flex items-center gap-2"
+              disabled={isProcessing}
+            >
+              <Cpu className="h-4 w-4" />
+              {isProcessing ? "Processing..." : "Preprocess Data"}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Step 3: Preprocessed Data Dashboard */}
+      {currentStep === 3 && (
+        <div className="flex flex-col flex-1 overflow-auto bg-gray-50 p-6">
+          
+          {/* Upload Button on Top */}
+          <div className="flex justify-end mb-6">
+            <form onSubmit={handleSubmit}>
+              <Button
+                type="submit"
+                disabled={uploading}
+                className="bg-black text-white px-4 py-2 rounded"
+              >
+                {uploading ? "Uploading..." : "Upload Processed File"}
+              </Button>
+            </form>
+          </div>
+
+          <div className="max-w-full mx-auto space-y-6">
+
+            {/* Cards Section */}
+            {processedData.length > 0 && (() => {
+              const dq = generateDataQualitySummary(modifiedHeaders, processedData)
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
+
+                  {/* Card 1: Data Statistics */}
+                  <div className="bg-white rounded-lg shadow p-4 flex flex-col space-y-2 text-black">
+                    <h2 className="text-md font-semibold mb-2 border-b border-gray-300 pb-1">Data Statistics</h2>
+                    <p><strong>Final Rows:</strong> {dq.totalRows}</p>
+                    <p><strong>Final Columns:</strong> {dq.totalColumns}</p>
+                    <p><strong>Empty Rows:</strong> {dq.emptyRowCount}</p>
+                    <p><strong>Duplicate Rows:</strong> {dq.duplicateCount}</p>
+                    <p><strong>Rows with Missing Values:</strong> {dq.rowsWithMissingValues}</p>
+                  </div>
+
+                  {/* Card 2: Data Improvements */}
+                  <div className="bg-white rounded-lg shadow p-4 flex flex-col space-y-2 text-black">
+                    <h2 className="text-md font-semibold mb-2 border-b border-gray-300 pb-1">Data Improvements</h2>
+                    <ul className="list-disc ml-4">
+                      {aiEmailColumns.length > 0 && <li>Email columns removed</li>}
+                      {aiCurrencyColumns.length > 0 && <li>Currency columns cleaned</li>}
+                      <li>Duplicate rows removed</li>
+                      <li>Low-value columns removed (&gt;30% missing)</li>
+                      <li>Data types standardized</li>
+                    </ul>
+                  </div>
+
+                    {/* Card 3: Data Quality Chart */}
+                    <div className="bg-white rounded-lg shadow p-4 flex flex-col items-center text-black">
+                    <h2 className="text-md font-semibold mb-2 border-b border-gray-300 pb-1">Data Quality Chart</h2>
+                    {pieData && (
+                      <div className="w-full flex justify-center">
+                      <div style={{ width: 220, height: 220 }}>
+                        <Pie data={pieData} />
+                      </div>
+                      </div>
+                    )}
+                    {dq.duplicateCount === 0 && (
+                      <p className="text-center mt-2 text-sm">No duplicate rows remaining</p>
+                    )}
+                    </div>
+
+                </div>
+              )
+            })()}
+
+            {/* AI Summary */}
+            {aiSummary && (
+              <div className="bg-white rounded-lg shadow p-4 mt-4 text-black">
+                <h2 className="text-md font-semibold mb-2 border-b border-gray-300 pb-1">AI Summary</h2>
+                <p className="whitespace-pre-line text-sm">{aiSummary}</p>
+              </div>
+            )}
+
+            {/* Preview Section - First 20 Rows */}
+            {processedData.length > 0 && (
+              <div className="flex flex-col p-4 bg-white rounded-lg shadow mt-4 w-full">
+                <h3 className="font-semibold mb-2 border-b border-gray-300 pb-1">Preview (First 20 Rows)</h3>
+                <div className="max-h-[400px] overflow-auto">
+                  <table className="min-w-full table-auto text-sm border-collapse">
+                    <thead className="bg-gray-100 sticky top-0">
+                      <tr>
+                        {modifiedHeaders.map((header) => (
+                          <th key={header} className="px-2 py-1 text-left">{header}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {processedData.slice(0, 20).map((row, idx) => (
+                        <tr key={idx} className={idx % 2 === 0 ? "bg-gray-50" : ""}>
+                          {modifiedHeaders.map((header) => (
+                            <td key={header} className="px-2 py-1">
+                              {row[header] ?? ""}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
