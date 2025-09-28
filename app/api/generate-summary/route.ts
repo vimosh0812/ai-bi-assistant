@@ -24,37 +24,43 @@ export async function POST(req: Request) {
       : "";
 
     const prompt = `You are a data analyst assistant.
-You are given CSV headers and a few sample rows.
-Provide a high-level human-readable summary of what this dataset seems to represent.
-Do not assume column types or units. Do not mention values in the rows. Plain text only.
+  You are given CSV headers and a few sample rows.
+  Provide a high-level human-readable summary of what this dataset seems to represent.
+  Do not assume column types or units. Do not mention values in the rows. Plain text only.
 
-${preprocessingNote}
+  ${preprocessingNote}
 
-Additionally:
-- Identify columns that likely contain email addresses and return them as a list.
-- Identify columns that contain or indicate currency. Only mark a column as currency if:
-  1) The column name explicitly suggests money (e.g., amount, price, cost, total), OR
-  2) The values contain currency symbols (e.g., $, ₹, €, PKR, INR).
-- Do NOT treat numeric columns without monetary indicators as currency (for example, Quantity or Count should NOT be currency).
-- For each currency column, include the detected currency name or symbol (e.g., "Amount (USD)", "Price ($)", "Total (INR)").
-- Do NOT treat numeric columns like Quantity, Count, or Units as currency even if other columns contain currency symbols.
-- Suggest modified headers where currency columns should be renamed as 'column_name (currency name or symbol)' for clarity.
-- Optionally, describe how numeric conversion can be applied to currency columns.
+  Additionally:
+  - Identify columns that likely contain email addresses and return them as a list. If a column contains mobile numbers (in local or international formats), include that information in the emailColumns list as well, e.g., { "name": "Contact", "type": "mobile" }.
+  - Identify columns that contain or indicate currency. Only mark a column as currency if:
+    1) The column name explicitly suggests money (e.g., amount, price, cost, total), OR
+    2) The values contain currency symbols (e.g., $, ₹, €, PKR, INR).
+  - Do NOT treat numeric columns without monetary indicators as currency (for example, Quantity or Count should NOT be currency).
+  - For each currency column, include the detected currency name or symbol (e.g., "Amount (USD)", "Price ($)", "Total (INR)").
+  - Do NOT treat numeric columns like Quantity, Count, or Units as currency even if other columns contain currency symbols.
+  - Suggest modified headers where currency columns should be renamed as 'column_name (currency name or symbol)' for clarity.
+  - Optionally, describe how numeric conversion can be applied to currency columns.
+  - Mark columns that are very important for understanding the dataset, and also mark columns that seem very irrelevant for the purposes of analysis.
 
-Return a JSON object like this:
-{
-  "summary": "High-level description of dataset including preprocessing notes",
-  "emailColumns": ["column1", "column2"],
-  "currencyColumns": [
+  Return a JSON object like this:
+  {
+    "summary": "High-level description of dataset including preprocessing notes",
+    "emailColumns": [
+    { "name": "column1", "type": "email" },
+    { "name": "column2", "type": "mobile" }
+    ],
+    "currencyColumns": [
     { "name": "column3", "currency": "USD" },
     { "name": "column4", "currency": "INR" }
-  ],
-  "modifiedHeaders": ["col1", "col2 (currency name or symbol)", "col3"]
-}
+    ],
+    "modifiedHeaders": ["col1", "col2 (currency name or symbol)", "col3"],
+    "importantColumns": ["column5", "column6"],
+    "irrelevantColumns": ["column7", "column8"]
+  }
 
-Headers: ${headers.join(", ")}
-Sample Rows:
-${preview}`;
+  Headers: ${headers.join(", ")}
+  Sample Rows:
+  ${preview}`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",

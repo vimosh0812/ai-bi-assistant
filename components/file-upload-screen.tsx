@@ -48,8 +48,10 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
   const [dragActive, setDragActive] = useState(false)
   const [loadingAI, setLoadingAI] = useState(false)
   const [processedData, setProcessedData] = useState<Record<string, any>[]>([])
-  const [aiEmailColumns, setAiEmailColumns] = useState<string[]>([])
-  const [aiCurrencyColumns, setAiCurrencyColumns] = useState<string[]>([])
+  const [aiEmailColumns, setAiEmailColumns] = useState<(string | { name: string; type: string })[]>([])
+  const [aiCurrencyColumns, setAiCurrencyColumns] = useState<(string | { name: string; currency: string })[]>([])
+  const [importantColumns, setImportantColumns] = useState<string[]>([])
+  const [irrelevantColumns, setIrrelevantColumns] = useState<string[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
   const [isDataProcessed, setIsDataProcessed] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -74,7 +76,6 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     })
   }
 
-  /** ✅ FIXED Missing value detection — ignore "0", "0.0", numbers, and currency */
   const generateDataQualitySummary = (headers: string[], data: Record<string, any>[]) => {
     const totalRows = data.length
     const totalColumns = headers.length
@@ -95,7 +96,6 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
       headers.forEach((h) => {
         const val = row[h]
 
-        // ✅ Only count as missing if it's truly empty/null/undefined
         if (val === null || val === undefined || (typeof val === "string" && val.trim() === "")) {
           missingValueSummary[h]++
           rowHasMissing = true
@@ -121,18 +121,20 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     }
   }
 
-  /** Preprocess CSV data */
   const preprocessData = (
     headers: string[],
     data: Record<string, any>[],
-    aiOutput: { emailColumns?: string[]; currencyColumns?: string[] }
+    aiOutput: { emailColumns?: { name: string; type: string }[]; currencyColumns?: { name: string; currency: string }[] }
   ) => {
     let processedData = [...data]
     let processedHeaders = [...headers]
 
-    // Drop email columns
+    // Remove email columns (handle objects with name/type)
     if (aiOutput.emailColumns?.length) {
-      processedHeaders = processedHeaders.filter((h) => !aiOutput.emailColumns!.includes(h))
+      const emailColumnNames = aiOutput.emailColumns.map((col) =>
+        typeof col === "string" ? col : col.name
+      )
+      processedHeaders = processedHeaders.filter((h) => !emailColumnNames.includes(h))
       processedData = processedData.map((row) => {
         const newRow: Record<string, any> = {}
         processedHeaders.forEach((h) => (newRow[h] = row[h]))
@@ -145,15 +147,21 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
       processedData = processedData.map((row) => {
         const newRow = { ...row }
         aiOutput.currencyColumns!.forEach((col) => {
-          if (Object.prototype.hasOwnProperty.call(newRow, col) && newRow[col] !== undefined && newRow[col] !== null && newRow[col] !== "") {
-            newRow[col] = newRow[col].toString().replace(/[^0-9.-]+/g, "")
+          const colName = typeof col === "string" ? col : col.name
+          if (
+            Object.prototype.hasOwnProperty.call(newRow, colName) &&
+            newRow[colName] !== undefined &&
+            newRow[colName] !== null &&
+            newRow[colName] !== ""
+          ) {
+            newRow[colName] = newRow[colName].toString().replace(/[^0-9.-]+/g, "")
           }
         })
         return newRow
       })
     }
 
-    // Drop columns with >30% missing values
+    // Remove low-value columns (>30% missing)
     const dqSummary = generateDataQualitySummary(processedHeaders, processedData)
     processedHeaders = processedHeaders.filter((h) => !dqSummary.lowValueColumns.includes(h))
     processedData = processedData.map((row) => {
@@ -171,14 +179,14 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
       return true
     })
 
-    // Trim strings, convert numeric, parse date/time
+    // Standardize data types
     processedData = processedData.map((row) => {
       const newRow: Record<string, any> = {}
       processedHeaders.forEach((h) => {
         let val = row[h]
         if (typeof val === "string") val = val.trim()
         if (!isNaN(Number(val)) && val !== "") val = Number(val)
-        else if (!isNaN(Date.parse(val))) val = new Date(val).toISOString()
+        else if (typeof val === "string" && !isNaN(Date.parse(val))) val = new Date(val).toISOString()
         newRow[h] = val
       })
       return newRow
@@ -187,7 +195,6 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     return { processedHeaders, processedData }
   }
 
-  /** Convert preprocessed data to CSV */
   const convertToCSV = (headers: string[], data: Record<string, any>[]) => {
     const csvRows = [
       headers.join(","), // header row
@@ -204,7 +211,6 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     return csvRows.join("\n")
   }
 
-  /** Handle CSV selection */
   const handleFileChange = async (selectedFile: File | null) => {
     if (!selectedFile || selectedFile.type !== "text/csv") return
     setFile(selectedFile)
@@ -215,7 +221,6 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     setProcessedData(rows)
     setSampleRows(rows.slice(0, 5))
 
-    // Call AI summary
     setLoadingAI(true)
     try {
       const res = await fetch("/api/generate-summary", {
@@ -224,8 +229,13 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
         body: JSON.stringify({ headers, rows: rows.slice(0, 5) }),
       })
       const data = await res.json()
+      console.log("AI Summary response:", data)
       setAiSummary(data.summary || "No summary available")
+      setImportantColumns(data.importantColumns || [])
+      setIrrelevantColumns(data.irrelevantColumns || [])
       setAiEmailColumns(data.emailColumns || [])
+
+
       setAiCurrencyColumns((data.currencyColumns || []).map((c: any) => c.name))
     } catch (err) {
       console.error(err)
@@ -237,15 +247,22 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     setSummary(generateDataQualitySummary(headers, rows))
   }
 
-  /** Handle preprocessing */
   const handlePreprocess = async () => {
     if (!processedData.length) return
     
     setIsProcessing(true)
     
     const result = preprocessData(modifiedHeaders, processedData, {
-      emailColumns: aiEmailColumns,
-      currencyColumns: aiCurrencyColumns,
+      emailColumns: aiEmailColumns.map((col) =>
+      typeof col === "string"
+        ? { name: col, type: col.toLowerCase().includes("mobile") ? "mobile" : "email" }
+        : col
+      ),
+      currencyColumns: aiCurrencyColumns.map((col) =>
+      typeof col === "string"
+        ? { name: col, currency: "unknown" }
+        : col 
+      ),
     })
     setModifiedHeaders(result.processedHeaders)
     setProcessedData(result.processedData)
@@ -563,11 +580,16 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
             {aiEmailColumns.length > 0 && (
               <div className="bg-white shadow rounded-lg p-6 flex flex-col h-full min-h-[220px]">
-                <h3 className="text-lg font-semibold mb-4">Email Columns Detected</h3>
+                <h3 className="text-lg font-semibold mb-4">Privacy Details Detected</h3>
                 <ul className="list-disc ml-5 text-sm flex-1">
-                  {aiEmailColumns.map((col) => (
-                    <li key={col}>{col}</li>
-                  ))}
+                    {aiEmailColumns.map((col, idx) =>
+                      typeof col === "string" ? (
+                        <li key={col}>{col}</li>
+                      ) : (
+                        <li key={col.name ?? idx}>{col.name}</li>
+                      )
+                    )}
+
                 </ul>
               </div>
             )}
@@ -587,9 +609,32 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
               <div className="bg-white shadow rounded-lg p-6 flex flex-col h-full min-h-[220px]">
                 <h3 className="text-lg font-semibold mb-4">💰 Currency Columns Detected</h3>
                 <ul className="list-disc ml-5 text-sm flex-1">
-                  {aiCurrencyColumns.map((col) => (
-                    <li key={col}>{col}</li>
-                  ))}
+                    {aiCurrencyColumns.map((col, idx) => {
+                      if (typeof col === "string") {
+                        return (
+                          <li key={col}>
+                            {col}
+                          </li>
+                        )
+                      } else if (col && typeof col === "object" && "name" in col) {
+                        return (
+                          <li key={col.name ?? idx}>
+                            {col.name}
+                            {col.currency ? (
+                              <span className="text-xs text-muted-foreground ml-1">
+                                ({col.currency})
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                (col.currency)
+                              </span>
+                            )}
+                          </li>
+                        )
+                      } else {
+                        return null
+                      }
+                    })}
                 </ul>
               </div>
             )}
@@ -647,11 +692,35 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
                   <div className="bg-white rounded-lg shadow p-4 flex flex-col space-y-2 text-black">
                     <h2 className="text-md font-semibold mb-2 border-b border-gray-300 pb-1">Data Improvements</h2>
                     <ul className="list-disc ml-4">
-                      {aiEmailColumns.length > 0 && <li>Email columns removed</li>}
-                      {aiCurrencyColumns.length > 0 && <li>Currency columns cleaned</li>}
-                      <li>Duplicate rows removed</li>
-                      <li>Low-value columns removed (&gt;30% missing)</li>
-                      <li>Data types standardized</li>
+                      {aiEmailColumns.map((col, idx) => (
+                        <li key={typeof col === "string" ? col : col.name ?? idx}>
+                          {typeof col === "string" ? `${col} column removed` : `${col.name} column removed`}
+                        </li>
+                      ))}
+                        {aiCurrencyColumns.length > 0 && (
+                        <li>
+                          {aiCurrencyColumns.length === 1
+                          ? `Currency column "${typeof aiCurrencyColumns[0] === "string" ? aiCurrencyColumns[0] : aiCurrencyColumns[0].name}" cleaned`
+                          : `Currency columns cleaned: ${aiCurrencyColumns
+                            .map((col) =>
+                              typeof col === "string" ? `"${col}"` : `"${col.name}"`
+                            )
+                            .join(", ")}`}
+                        </li>
+                        )}
+                        {dq.duplicateCount > 0 && <li>{dq.duplicateCount} duplicate rows removed</li>}
+                        {dq.lowValueColumns.length > 0 && (
+                          <li>
+                          Low-value columns removed (&gt;30% missing):{" "}
+                          {dq.lowValueColumns.map((col) => `"${col}"`).join(", ")}
+                          </li>
+                        )}
+                        {importantColumns.length > 0 &&
+                          dq.lowValueColumns.some((col) => importantColumns.includes(col)) && (
+                          <li className="text-red-600">
+                          Warning: Some important columns were removed due to high missing values. Please check your data and consider re-submitting after fixing missing values.
+                          </li>
+                        )}
                     </ul>
                   </div>
 
