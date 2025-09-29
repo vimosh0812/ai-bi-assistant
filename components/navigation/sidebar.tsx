@@ -178,10 +178,10 @@ export function Sidebar() {
             <DropdownMenuLabel>My Account</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              {/* <Link href="/dashboard/profile" className="flex items-center"> */}
+              <div className="flex items-center">
                 <User className="mr-2 h-4 w-4" />
                 Profile Settings
-              {/* </Link> */}
+              </div>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
