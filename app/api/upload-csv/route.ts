@@ -1,12 +1,12 @@
 // /app/api/upload-csv/route.ts
 import { type NextRequest, NextResponse } from "next/server";
-import { createServerSideClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { parse } from "papaparse"; // Optional, for CSV validation
 
 export async function POST(request: NextRequest) {
   try {
     const { fileName, description, csvText, folderId, aiSummary } = await request.json();
-    const supabase = await createServerSideClient();
+    const supabase = await createClient();
 
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {

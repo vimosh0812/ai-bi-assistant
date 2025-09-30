@@ -1,11 +1,10 @@
-// app/dashboard/page.tsx
 import DashboardLayout from "@/components/layouts/dashboard-layout"
 import { DashboardContent } from "@/components/dashboard/dashboard-content"
-import { createServerSideClient } from "@/lib/supabase/server"
+import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 
 export default async function DashboardPage() {
-  const supabase = createServerSideClient()
+  const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()

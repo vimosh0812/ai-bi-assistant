@@ -1,12 +1,12 @@
 // components/layouts/dashboard-layout.tsx
 import { redirect } from "next/navigation"
-import { createServerSideClient } from "@/lib/supabase/server"
+import { createClient } from "@/lib/supabase/server"
 import { Sidebar } from "@/components/navigation/sidebar"
 import { TopNav } from "@/components/navigation/top-nav"
 import { AuthProvider } from "@/hooks/use-auth"
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const supabase = createServerSideClient()
+  const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()

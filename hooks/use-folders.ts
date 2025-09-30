@@ -1,21 +1,18 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { createClient } from "@/lib/supabase/client"
 import type { Folder } from "@/types/database"
 import { useToast } from "@/hooks/use-toast"
+import { fetchFoldersAction, createFolderAction, updateFolderAction, deleteFolderAction } from "@/actions/folders-actions"
 
 export function useFolders() {
   const [folders, setFolders] = useState<Folder[]>([])
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
   const { toast } = useToast()
 
   const fetchFolders = async () => {
     try {
-      const { data, error } = await supabase.from("folders").select("*").order("created_at", { ascending: false })
-
-      if (error) throw error
+      const data = await fetchFoldersAction();
       setFolders(data || [])
     } catch (error) {
       console.error("Error fetching folders:", error)
@@ -33,28 +30,7 @@ export function useFolders() {
     console.log("useFolders: createFolder called", data)
 
     try {
-      console.log("Fetching current user...")
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser()
-
-      console.log("User data:", user)
-      if (userError) throw userError
-      if (!user) throw new Error("Not authenticated")
-      
-      const userId = user.id
-      console.log("Authenticated user:", userId)
-
-      const { data: newFolder, error } = await supabase
-        .from("folders")
-        .insert([{ name: data.name, description: data.description, user_id: userId }])
-        .select()
-        .single()
-
-      if (error) throw error
-      console.log("Folder created:", newFolder)
-
+      const newFolder = await createFolderAction(data)
       setFolders((prev) => [newFolder, ...prev])
     } catch (error: any) {
       console.error("Error creating folder:", error.message || error)
@@ -62,22 +38,9 @@ export function useFolders() {
     }
   }
 
-
   const updateFolder = async (id: string, data: { name: string; description: string }) => {
     try {
-      const { data: updatedFolder, error } = await supabase
-        .from("folders")
-        .update({
-          name: data.name,
-          description: data.description,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", id)
-        .select()
-        .single()
-
-      if (error) throw error
-
+      const updatedFolder = await updateFolderAction(id, data)
       setFolders((prev) => prev.map((folder) => (folder.id === id ? updatedFolder : folder)))
       toast({
         title: "Success",
@@ -95,10 +58,7 @@ export function useFolders() {
 
   const deleteFolder = async (id: string) => {
     try {
-      const { error } = await supabase.from("folders").delete().eq("id", id)
-
-      if (error) throw error
-
+      await deleteFolderAction(id)
       setFolders((prev) => prev.filter((folder) => folder.id !== id))
       toast({
         title: "Success",

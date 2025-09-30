@@ -1,13 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
-export const dynamic = "force-dynamic";
-
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
+    request,
   });
 
   const supabase = createServerClient(
@@ -19,31 +15,50 @@ export async function updateSession(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) =>
+            request.cookies.set(name, value),
+          );
+          response = NextResponse.next({
+            request,
+          });
           cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
+            response.cookies.set(name, value, options),
           );
         },
       },
     }
   );
 
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
+  // Do not run code between createServerClient and
+  // supabase.auth.getClaims(). A simple mistake could make it very hard to debug
+  // issues with users being randomly logged out.
 
-  const redirectUrl = (path: string) => {
+  // IMPORTANT: If you remove getClaims() and you use server-side rendering
+  // with the Supabase client, your users may be randomly logged out.
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims;
+
+  if (
+    request.nextUrl.pathname !== "/" &&
+    !user &&
+    !request.nextUrl.pathname.startsWith("/sign-in") &&
+    !request.nextUrl.pathname.startsWith("/auth")
+  ) {
+    // no user, potentially respond by redirecting the user to the sign in page
     const url = request.nextUrl.clone();
-    url.pathname = path;
-    return url;
-  };
-
-  if (request.nextUrl.pathname.startsWith("/dashboard") && error) {
-    return NextResponse.redirect(redirectUrl("/auth/sign-in"));
+    url.pathname = "/auth/sign-in";
+    return NextResponse.redirect(url);
   }
 
-  if (request.nextUrl.pathname === "/" && !error) {
-    return NextResponse.redirect(redirectUrl("/dashboard"));
+  if (
+    user &&
+    (request.nextUrl.pathname === "/auth/sign-in" ||
+      request.nextUrl.pathname === "/auth/sign-up")
+  ) {
+    // user, potentially respond by redirecting the user to the app
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
+    return NextResponse.redirect(url);
   }
 
   return response;

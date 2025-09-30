@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { createClient } from "@/lib/supabase/client"
 import type { File } from "@/types/database"
 import { useToast } from "@/hooks/use-toast"
+import { fetchFilesAction, deleteFileAction } from "@/actions/files-actions"
 
 // --- Simple CSV parser ---
 function parseCSV(csvText: string) {
@@ -44,7 +44,6 @@ function parseCSV(csvText: string) {
 export function useFiles(folderId?: string) {
   const [files, setFiles] = useState<File[]>([])
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
   const { toast } = useToast()
 
   const fetchFiles = useCallback(async () => {
@@ -56,23 +55,11 @@ export function useFiles(folderId?: string) {
     }
     setLoading(true)
     try {
-      console.log("Fetching files for folder:", folderId)
-      const { data, error } = await supabase
-        .from("files")
-        .select("*")
-        .eq("folder_id", folderId)
-        .order("created_at", { ascending: false })
-
-      console.log("Files fetch response:", { data, error })
-
-      if (error) {
-        console.error("Supabase error:", error)
-        setFiles([])
-      } else {
-        setFiles(data || [])
-      }
+      const data = await fetchFilesAction(folderId)
+      setFiles(data || [])
     } catch (error) {
       console.error("Error fetching files:", error)
+      setFiles([])
       toast({
         title: "Error",
         description: "Failed to fetch files",
@@ -81,7 +68,7 @@ export function useFiles(folderId?: string) {
     } finally {
       setLoading(false)
     }
-  }, [folderId, supabase, toast])
+  }, [folderId, toast])
 
   const uploadFile = async (payload: { name: string; description: string; file: File; aiSummary?: any }) => {
       if (!folderId) return toast({ title: "Error", description: "No folder selected", variant: "destructive" });
@@ -117,8 +104,7 @@ export function useFiles(folderId?: string) {
 
   const deleteFile = async (id: string) => {
     try {
-      const { error } = await supabase.from("files").delete().eq("id", id)
-      if (error) throw error
+      await deleteFileAction(id)
       setFiles((prev) => prev.filter((file) => file.id !== id))
       toast({ title: "Success", description: "File deleted successfully" })
     } catch (error) {

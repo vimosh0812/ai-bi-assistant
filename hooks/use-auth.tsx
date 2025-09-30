@@ -4,16 +4,7 @@ import type React from "react"
 import { createClient } from "@/lib/supabase/client"
 import type { User } from "@supabase/supabase-js"
 import { createContext, useContext, useEffect, useState } from "react"
-
-export interface Profile {
-  id: string
-  email: string
-  full_name: string | null
-  role: "admin" | "user"
-  avatar_url: string | null
-  created_at: string
-  updated_at: string
-}
+import { getOrCreateProfile, type Profile } from "@/actions/profile-actions"
 
 interface AuthContextType {
   user: User | null
@@ -30,45 +21,14 @@ interface AuthProviderProps {
   initialUser?: User | null
 }
 
+const supabaseInstance = createClient();
+
 export function AuthProvider({ children, initialUser }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(initialUser ?? null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(!initialUser)
-  const supabase = createClient()
 
-  // Create profile if missing
-  const createProfileIfNotExists = async (
-    userId: string,
-    email: string,
-    fullName?: string
-  ): Promise<Profile> => {
-    console.log("[AuthProvider] Creating new profile for user:", userId)
-    const newProfile: Profile = {
-      id: userId,
-      email,
-      full_name: fullName || null,
-      role: "user",
-      avatar_url: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .insert([newProfile])
-        .select()
-        .maybeSingle()
-      if (error) console.warn("[AuthProvider] Error creating profile:", error.message)
-      console.log("[AuthProvider] Created profile:", data ?? newProfile)
-      return data ?? newProfile
-    } catch (err) {
-      console.warn("[AuthProvider] Failed to create profile locally:", err)
-      return newProfile
-    }
-  }
-
-  // Fetch profile from DB or create if missing
+  // Fetch profile using server action
   const fetchProfile = async (
     userId: string,
     email?: string,
@@ -76,23 +36,9 @@ export function AuthProvider({ children, initialUser }: AuthProviderProps) {
   ): Promise<Profile | null> => {
     console.log("[AuthProvider] Fetching profile for user:", userId)
     try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", userId)
-        .maybeSingle()
-
-      if (error) console.warn("[AuthProvider] fetchProfile error:", error.message)
-      if (data) {
-        console.log("[AuthProvider] Profile found:", data)
-        setProfile(data)
-        return data
-      }
-
-      console.log("[AuthProvider] Profile not found, creating new one")
-      const newProfile = await createProfileIfNotExists(userId, email || "", fullName)
-      setProfile(newProfile)
-      return newProfile
+      const profileData = await getOrCreateProfile(userId, email || "", fullName)
+      setProfile(profileData)
+      return profileData
     } catch (err) {
       console.error("[AuthProvider] fetchProfile exception:", err)
       setProfile(null)
@@ -110,6 +56,7 @@ export function AuthProvider({ children, initialUser }: AuthProviderProps) {
   const signOut = async () => {
     console.log("[AuthProvider] Signing out")
     try {
+      const supabase = createClient()
       const { error } = await supabase.auth.signOut()
       if (error) throw error
       setUser(null)
@@ -128,11 +75,10 @@ export function AuthProvider({ children, initialUser }: AuthProviderProps) {
     const initAuth = async () => {
       console.log("[AuthProvider] Initializing auth...")
       setLoading(true)
-
       const {
         data: { session },
         error,
-      } = await supabase.auth.getSession()
+      } = await supabaseInstance.auth.getSession()
 
       if (error) {
         console.error("[AuthProvider] getSession error:", error)
@@ -162,7 +108,7 @@ export function AuthProvider({ children, initialUser }: AuthProviderProps) {
     // Listen for auth state changes (cross-tab)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabaseInstance.auth.onAuthStateChange(async (_event, session) => {
       console.log("[AuthProvider] Auth state changed:", _event, session)
       if (session?.user) {
         setUser(session.user)
@@ -176,33 +122,6 @@ export function AuthProvider({ children, initialUser }: AuthProviderProps) {
 
     return () => subscription.unsubscribe()
   }, [])
-
-  // Real-time profile updates
-  useEffect(() => {
-    if (!user?.id) return
-    console.log("[AuthProvider] Subscribing to profile changes for user:", user.id)
-    const profileSubscription = supabase
-      .channel(`profile-${user.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "profiles",
-          filter: `id=eq.${user.id}`,
-        },
-        (payload) => {
-          console.log("[AuthProvider] Profile change event:", payload)
-          if (payload.eventType === "UPDATE" && payload.new) setProfile(payload.new as Profile)
-        }
-      )
-      .subscribe()
-
-    return () => {
-      console.log("[AuthProvider] Unsubscribing profile changes for user:", user.id)
-      supabase.removeChannel(profileSubscription)
-    }
-  }, [user?.id])
 
   return (
     <AuthContext.Provider value={{ user, profile, loading, signOut, refreshProfile }}>
