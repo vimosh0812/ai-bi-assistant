@@ -1,0 +1,76 @@
+<?xml version='1.0' encoding='utf-8' ?>
+
+<!-- build 20252.25.0806.2353                               -->
+<workbook original-version='18.1' source-build='2025.2.0 (20252.25.0806.2353)' version='18.1' xml:base='https://prod-in-a.online.tableau.com' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <document-format-change-manifest>
+    <AnimationOnByDefault />
+    <ISO8601DefaultCalendarPref />
+    <MarkAnimation />
+    <ObjectModelEncapsulateLegacy />
+    <ObjectModelTableType />
+    <SchemaViewerObjectModel />
+    <SheetIdentifierTracking />
+    <WindowsPersistSimpleIdentifiers />
+  </document-format-change-manifest>
+  <repository-location derived-from='http://localhost:9100/t/vimosh01-5eef3e46e5/workbooks/new-Workbook?rev=1.1' id='new-Workbook' path='/t/vimosh01-5eef3e46e5/workbooks' revision='1.1' site='vimosh01-5eef3e46e5' />
+  <preferences />
+  <datasources>
+    <datasource caption='dandan003' inline='true' name='sqlproxy.1b4n3x61q3q7321divmm20c9neoq' version='18.1'>
+      <repository-location derived-from='http://localhost:9100/t/vimosh01-5eef3e46e5/datasources/dandan003?rev=1.0' id='new' path='/t/vimosh01-5eef3e46e5/datasources' revision='1.1' site='vimosh01-5eef3e46e5' />
+      <connection channel='https' class='sqlproxy' dbname='dandan003' directory='dataserver' port='443' server='prod-in-a.online.tableau.com' server-ds-friendly-name='dandan003' username=''>
+        <relation connection='sqlproxy.1b4n3x61q3q7321divmm20c9neoq' name='sqlproxy' table='[sqlproxy]' type='table' />
+        <calculations>
+          <calculation column='[Number of Records]' formula='1' />
+        </calculations>
+      </connection>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Sheet 1'>
+      <repository-location derived-from='http://localhost:9100/t/vimosh01-5eef3e46e5/workbooks/new-Workbook/Sheet1?rev=' id='277993' path='/t/vimosh01-5eef3e46e5/workbooks/new-Workbook' revision='' site='vimosh01-5eef3e46e5' />
+      <table>
+        <view>
+          <datasources />
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Automatic' />
+          </pane>
+        </panes>
+        <rows />
+        <cols />
+      </table>
+      <simple-id uuid='{4FE8EFBF-CAC6-4A36-91C7-179BC40F4DDA}' />
+    </worksheet>
+  </worksheets>
+  <windows>
+    <window class='worksheet' maximized='true' name='Sheet 1'>
+      <cards>
+        <edge name='left'>
+          <strip size='160'>
+            <card type='pages' />
+            <card type='filters' />
+            <card type='marks' />
+          </strip>
+        </edge>
+        <edge name='top'>
+          <strip size='31'>
+            <card type='columns' />
+          </strip>
+          <strip size='31'>
+            <card type='rows' />
+          </strip>
+          <strip size='31'>
+            <card type='title' />
+          </strip>
+        </edge>
+      </cards>
+      <simple-id uuid='{22146509-AD4D-4584-8DDD-347A2A2BAE37}' />
+    </window>
+  </windows>
+</workbook>

@@ -34,12 +34,12 @@ const navItems: NavItem[] = [
     icon: Home,
     roles: ["admin", "user"],
   },
-  // {
-  //   title: "Analytics",
-  //   href: "/dashboard/analytics",
-  //   icon: BarChart3,
-  //   roles: ["admin", "user"],
-  // },
+  {
+    title: "Analytics",
+    href: "/analytics",
+    icon: BarChart3,
+    roles: ["admin", "user"],
+  },
   // // {
   // //   title: "Reports",
   // //   href: "/dashboard/reports",
