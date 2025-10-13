@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { DEFAULT_NAMES, ALLOWED_EXTENSIONS } from '@/lib/config';
 
 interface PublishResponse {
   success: boolean;
@@ -11,6 +12,7 @@ interface PublishResponse {
       name: string;
       contentUrl: string;
       webpageUrl: string;
+      sheetUrl?: string;
       showTabs: boolean;
       size: number;
       createdAt: string;
@@ -47,12 +49,14 @@ interface PublishDataSourceResponse {
   message: string;
   datasourceUrl?: string | null;
   workbookUrl?: string | null;
+  projectName?: string;
   data?: {
     datasource: {
       id: string;
       name: string;
       contentUrl: string;
       webpageUrl: string;
+      sheetUrl?: string;
       size: number;
       createdAt: string;
       updatedAt: string;
@@ -69,47 +73,45 @@ interface PublishDataSourceResponse {
       id: string;
       name: string;
       webpageUrl: string;
+      sheetUrl?: string;
     } | null;
+    project?: {
+      id: string;
+      name: string;
+      description: string;
+    };
     connected?: boolean;
   };
 }
 
 export default function AnalyticsContent() {
   const [file, setFile] = useState<File | null>(null);
-  const [workbookName, setWorkbookName] = useState('');
-  const [datasourceName, setDatasourceName] = useState('');
-  const [projectId, setProjectId] = useState('');
-  const [showTabs, setShowTabs] = useState(true);
-  const [overwrite, setOverwrite] = useState(false);
-  const [encryptExtracts, setEncryptExtracts] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [response, setResponse] = useState<PublishResponse | null>(null);
   const [datasourceResponse, setDatasourceResponse] = useState<PublishDataSourceResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
   const [publishType, setPublishType] = useState<'workbook' | 'datasource'>('workbook');
+  const [copied, setCopied] = useState(false);
 
-  // Fetch projects on component mount
-  useEffect(() => {
-    fetchProjects();
-  }, []);
+  const generateEmbedCode = (sheetUrl: string) => {
+    return `<script type='module' src='https://prod-in-a.online.tableau.com/javascripts/api/tableau.embedding.3.latest.min.js'></script>
+<tableau-viz 
+  id='tableau-viz' 
+  src='${sheetUrl}' 
+  width='1470' 
+  height='791' 
+  hide-tabs 
+  toolbar='bottom'>
+</tableau-viz>`;
+  };
 
-  const fetchProjects = async () => {
-    setIsLoadingProjects(true);
+  const copyToClipboard = async (text: string) => {
     try {
-      const res = await fetch('/api/get-projects');
-      const data = await res.json();
-      
-      if (data.success) {
-        setProjects(data.projects);
-      } else {
-        console.error('Failed to fetch projects:', data.error);
-      }
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Error fetching projects:', err);
-    } finally {
-      setIsLoadingProjects(false);
+      console.error('Failed to copy text: ', err);
     }
   };
 
@@ -117,20 +119,13 @@ export default function AnalyticsContent() {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
-      // Auto-fill name based on file type
-      const nameWithoutExtension = selectedFile.name.replace(/\.[^/.]+$/, '');
+      // Auto-detect file type
       const fileExtension = selectedFile.name.toLowerCase().substring(selectedFile.name.lastIndexOf('.'));
       
-      if (['.hyper', '.tds', '.tdsx'].includes(fileExtension)) {
+      if (ALLOWED_EXTENSIONS.DATASOURCE.includes(fileExtension as '.hyper' | '.tds' | '.tdsx' | '.csv')) {
         setPublishType('datasource');
-        if (!datasourceName) {
-          setDatasourceName(nameWithoutExtension);
-        }
-      } else if (['.twb', '.twbx'].includes(fileExtension)) {
+      } else if (ALLOWED_EXTENSIONS.WORKBOOK.includes(fileExtension as '.twb' | '.twbx' | '.hyper')) {
         setPublishType('workbook');
-        if (!workbookName) {
-          setWorkbookName(nameWithoutExtension);
-        }
       }
     }
   };
@@ -143,16 +138,6 @@ export default function AnalyticsContent() {
       return;
     }
 
-    if (publishType === 'workbook' && !workbookName.trim()) {
-      setError('Please enter a workbook name');
-      return;
-    }
-
-    if (publishType === 'datasource' && !datasourceName.trim()) {
-      setError('Please enter a data source name');
-      return;
-    }
-
     setIsUploading(true);
     setError(null);
     setResponse(null);
@@ -161,17 +146,19 @@ export default function AnalyticsContent() {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('projectId', projectId);
-      formData.append('overwrite', overwrite.toString());
-      formData.append('encryptExtracts', encryptExtracts.toString());
-
+      
+      // Use names from constants
       let endpoint = '';
       if (publishType === 'workbook') {
-        formData.append('workbookName', workbookName);
-        formData.append('showTabs', showTabs.toString());
+        formData.append('workbookName', DEFAULT_NAMES.WORKBOOK_NAME);
+        formData.append('showTabs', 'true');
+        formData.append('overwrite', 'false');
+        formData.append('encryptExtracts', 'false');
         endpoint = '/api/publish-workbook';
       } else {
-        formData.append('datasourceName', datasourceName);
+        formData.append('datasourceName', DEFAULT_NAMES.DATA_SOURCE_NAME);
+        formData.append('overwrite', 'false');
+        formData.append('encryptExtracts', 'false');
         endpoint = '/api/publish-datasource';
       }
 
@@ -216,13 +203,13 @@ export default function AnalyticsContent() {
                 <input
                   type="file"
                   id="file"
-                  accept=".twb,.twbx,.hyper,.tds,.tdsx"
+                  accept=".twb,.twbx,.hyper,.tds,.tdsx,.csv"
                   onChange={handleFileChange}
                   className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                   required
                 />
                 <p className="mt-1 text-sm text-gray-500">
-                  Supported formats: .twb, .twbx (workbooks), .hyper, .tds, .tdsx (data sources) (Max 64MB)
+                  Supported formats: .twb, .twbx (workbooks), .hyper, .tds, .tdsx, .csv (data sources) (Max 64MB)
                 </p>
               </div>
 
@@ -239,112 +226,28 @@ export default function AnalyticsContent() {
                     <p className="text-xs text-blue-600 mt-1">
                       {publishType === 'workbook' 
                         ? 'Workbooks (.twb, .twbx) are published to the workbooks endpoint'
-                        : 'Data sources (.hyper, .tds, .tdsx) are published to the datasources endpoint'
+                        : 'Data sources (.hyper, .tds, .tdsx, .csv) are published to the datasources endpoint. CSV files are automatically converted to Hyper format.'
                       }
                     </p>
                   </div>
                 </div>
               </div>
 
-              {/* Name Field - Dynamic based on publish type */}
-              {publishType === 'workbook' ? (
-                <div>
-                  <label htmlFor="workbookName" className="block text-sm font-medium text-gray-700 mb-2">
-                    Workbook Name
-                  </label>
-                  <input
-                    type="text"
-                    id="workbookName"
-                    value={workbookName}
-                    onChange={(e) => setWorkbookName(e.target.value)}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter workbook name"
-                    required
-                  />
-                </div>
-              ) : (
-                <div>
-                  <label htmlFor="datasourceName" className="block text-sm font-medium text-gray-700 mb-2">
-                    Data Source Name
-                  </label>
-                  <input
-                    type="text"
-                    id="datasourceName"
-                    value={datasourceName}
-                    onChange={(e) => setDatasourceName(e.target.value)}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter data source name"
-                    required
-                  />
-                </div>
-              )}
 
-              {/* Project Selection */}
-              <div>
-                <label htmlFor="projectId" className="block text-sm font-medium text-gray-700 mb-2">
-                  Select Project
-                </label>
-                <select
-                  id="projectId"
-                  value={projectId}
-                  onChange={(e) => setProjectId(e.target.value)}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">Select a project (or leave empty for default)</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name} ({project.id})
-                    </option>
-                  ))}
-                </select>
-                {isLoadingProjects && (
-                  <p className="mt-1 text-sm text-gray-500">Loading projects...</p>
-                )}
-              </div>
-
-              {/* Options */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium text-gray-900">Options</h3>
-                
-                {publishType === 'workbook' && (
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      id="showTabs"
-                      checked={showTabs}
-                      onChange={(e) => setShowTabs(e.target.checked)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                    />
-                    <label htmlFor="showTabs" className="ml-2 block text-sm text-gray-900">
-                      Show tabs
-                    </label>
+              {/* Auto-generated Info */}
+              <div className="bg-green-50 border border-green-200 rounded-md p-4">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <div className="w-2 h-2 bg-green-400 rounded-full"></div>
                   </div>
-                )}
-
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="overwrite"
-                    checked={overwrite}
-                    onChange={(e) => setOverwrite(e.target.checked)}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <label htmlFor="overwrite" className="ml-2 block text-sm text-gray-900">
-                    Overwrite existing workbook
-                  </label>
-                </div>
-
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="encryptExtracts"
-                    checked={encryptExtracts}
-                    onChange={(e) => setEncryptExtracts(e.target.checked)}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <label htmlFor="encryptExtracts" className="ml-2 block text-sm text-gray-900">
-                    Encrypt extracts
-                  </label>
+                  <div className="ml-3">
+                    <p className="text-sm text-green-800">
+                      <strong>Auto-generated:</strong> Name, project, and settings will be automatically configured
+                    </p>
+                    <p className="text-xs text-green-600 mt-1">
+                      Using default names: {publishType === 'workbook' ? DEFAULT_NAMES.WORKBOOK_NAME : DEFAULT_NAMES.DATA_SOURCE_NAME}
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -355,7 +258,7 @@ export default function AnalyticsContent() {
                   disabled={isUploading || !file}
                   className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isUploading ? 'Publishing...' : `Publish ${publishType === 'workbook' ? 'Workbook' : 'Data Source'}`}
+                  {isUploading ? 'Publishing...' : 'Publish to Tableau'}
                 </button>
               </div>
             </form>
@@ -401,6 +304,19 @@ export default function AnalyticsContent() {
                               </a>
                             </p>
                           )}
+                          {response.data.workbook.sheetUrl && (
+                            <p>
+                              <strong>Sheet URL:</strong>{' '}
+                              <a 
+                                href={response.data.workbook.sheetUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-500 underline"
+                              >
+                                Open Sheet
+                              </a>
+                            </p>
+                          )}
                           {response.data.workbook.views.length > 0 && (
                             <div className="mt-3">
                               <p className="font-medium">Views:</p>
@@ -409,6 +325,23 @@ export default function AnalyticsContent() {
                                   <li key={view.id}>{view.name}</li>
                                 ))}
                               </ul>
+                            </div>
+                          )}
+                          {/* Embed Code Section */}
+                          {response.data.workbook.sheetUrl && (
+                            <div className="mt-4 p-4 bg-gray-50 rounded-md">
+                              <div className="flex items-center justify-between mb-2">
+                                <h4 className="text-sm font-medium text-gray-900">Embed Code</h4>
+                                <button
+                                  onClick={() => copyToClipboard(generateEmbedCode(response.data?.workbook.sheetUrl!))}
+                                  className="inline-flex items-center px-2.5 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                >
+                                  {copied ? 'Copied!' : 'Copy Code'}
+                                </button>
+                              </div>
+                              <pre className="text-xs text-gray-600 bg-white p-3 rounded border overflow-x-auto whitespace-pre-wrap break-words">
+                                <code>{generateEmbedCode(response.data.workbook.sheetUrl)}</code>
+                              </pre>
                             </div>
                           )}
                         </div>
@@ -433,6 +366,9 @@ export default function AnalyticsContent() {
                           <p><strong>Name:</strong> {datasourceResponse.data.datasource.name}</p>
                           <p><strong>Size:</strong> {datasourceResponse.data.datasource.size} MB</p>
                           <p><strong>Created:</strong> {new Date(datasourceResponse.data.datasource.createdAt).toLocaleString()}</p>
+                          {datasourceResponse.projectName && (
+                            <p><strong>Project Created:</strong> {datasourceResponse.projectName}</p>
+                          )}
                           {datasourceResponse.data.datasource.webpageUrl && (
                             <p>
                               <strong>View in Tableau:</strong>{' '}
@@ -443,6 +379,19 @@ export default function AnalyticsContent() {
                                 className="text-blue-600 hover:text-blue-500 underline"
                               >
                                 Open Data Source
+                              </a>
+                            </p>
+                          )}
+                          {datasourceResponse.data.datasource.sheetUrl && (
+                            <p>
+                              <strong>Sheet URL:</strong>{' '}
+                              <a 
+                                href={datasourceResponse.data.datasource.sheetUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-500 underline"
+                              >
+                                Open Sheet
                               </a>
                             </p>
                           )}
@@ -460,15 +409,41 @@ export default function AnalyticsContent() {
                               </a>
                             </p>
                           )}
-                        {datasourceResponse.data.workbook?.id && (
+                          {/* Workbook Sheet URL if available */}
+                          {datasourceResponse.data.workbook?.sheetUrl && (
                             <p>
-                                <strong>Workbook ID:</strong> {datasourceResponse.data.workbook.id}
+                              <strong>Workbook Sheet URL:</strong>{' '}
+                              <a 
+                                href={datasourceResponse.data.workbook.sheetUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-500 underline"
+                              >
+                                Open Workbook Sheet
+                              </a>
                             </p>
-                        )}
+                          )}
                           {typeof datasourceResponse.data.connected === 'boolean' && (
                             <p>
                               <strong>Connected:</strong> {datasourceResponse.data.connected ? 'Yes' : 'Not verified'}
                             </p>
+                          )}
+                          {/* Embed Code Section for Workbook (if available) */}
+                          {datasourceResponse.data.workbook?.sheetUrl && (
+                            <div className="mt-4 p-4 bg-gray-50 rounded-md">
+                              <div className="flex items-center justify-between mb-2">
+                                <h4 className="text-sm font-medium text-gray-900">Workbook Embed Code</h4>
+                                <button
+                                  onClick={() => copyToClipboard(generateEmbedCode(datasourceResponse.data?.workbook?.sheetUrl!))}
+                                  className="inline-flex items-center px-2.5 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                >
+                                  {copied ? 'Copied!' : 'Copy Code'}
+                                </button>
+                              </div>
+                              <pre className="text-xs text-gray-600 bg-white p-3 rounded border overflow-x-auto whitespace-pre-wrap break-words">
+                                <code>{generateEmbedCode(datasourceResponse.data.workbook.sheetUrl)}</code>
+                              </pre>
+                            </div>
                           )}
                         </div>
                       )}
@@ -480,56 +455,6 @@ export default function AnalyticsContent() {
           </div>
         </div>
 
-        {/* Projects Display Section */}
-        <div className="mt-8 bg-white shadow rounded-lg">
-          <div className="px-4 py-5 sm:p-6">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Available Projects</h2>
-            {isLoadingProjects ? (
-              <p className="text-gray-500">Loading projects...</p>
-            ) : projects.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Project Name
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Project ID
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Description
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Created
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {projects.map((project) => (
-                      <tr key={project.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {project.name}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
-                          {project.id}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-500">
-                          {project.description || 'No description'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {project.createdAt ? new Date(project.createdAt).toLocaleDateString() : 'N/A'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-gray-500">No projects found.</p>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );

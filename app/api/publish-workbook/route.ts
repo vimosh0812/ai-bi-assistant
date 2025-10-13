@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TableauPublisher } from '@/lib/tableau-publisher';
 import { TableauCredentials } from '@/lib/tableau-auth';
+import { TABLEAU_SETTINGS, ALLOWED_EXTENSIONS } from '@/lib/config';
 import fs from 'fs';
 
 export async function POST(request: NextRequest) {
@@ -30,21 +31,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate file type
-    const allowedExtensions = ['.twb', '.twbx', '.hyper'];
-    const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+    const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.')) as '.twb' | '.twbx' | '.hyper';
     
-    if (!allowedExtensions.includes(fileExtension)) {
+    if (!ALLOWED_EXTENSIONS.WORKBOOK.includes(fileExtension)) {
       return NextResponse.json(
-        { error: 'Invalid file type. Only .twb, .twbx, and .hyper files are allowed.' },
+        { error: `Invalid file type. Only ${ALLOWED_EXTENSIONS.WORKBOOK.join(', ')} files are allowed.` },
         { status: 400 }
       );
     }
 
-    // Check file size (64MB limit)
-    const maxSize = parseInt(process.env.MAX_FILE_SIZE_MB || '64') * 1024 * 1024;
+    // Check file size limit
+    const maxSize = parseInt(process.env.MAX_FILE_SIZE_MB || TABLEAU_SETTINGS.MAX_FILE_SIZE_MB.toString()) * 1024 * 1024;
     if (file.size > maxSize) {
       return NextResponse.json(
-        { error: `File size exceeds ${process.env.MAX_FILE_SIZE_MB || '64'}MB limit` },
+        { error: `File size exceeds ${process.env.MAX_FILE_SIZE_MB || TABLEAU_SETTINGS.MAX_FILE_SIZE_MB}MB limit` },
         { status: 400 }
       );
     }

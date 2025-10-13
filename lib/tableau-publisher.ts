@@ -20,12 +20,29 @@ export interface PublishDataSourceRequest {
   fileName: string;
 }
 
+export interface CreateProjectRequest {
+  name: string;
+  description?: string;
+}
+
+export interface CreateProjectResponse {
+  success: boolean;
+  message: string;
+  project?: {
+    id: string;
+    name: string;
+    description: string;
+    createdAt: string;
+  };
+}
+
 export interface PublishWorkbookResponse {
   workbook: {
     id: string;
     name: string;
     contentUrl: string;
     webpageUrl: string;
+    sheetUrl?: string;
     showTabs: boolean;
     size: number;
     createdAt: string;
@@ -54,6 +71,7 @@ export interface PublishDataSourceResponse {
     name: string;
     contentUrl: string;
     webpageUrl: string;
+    sheetUrl?: string;
     size: number;
     createdAt: string;
     updatedAt: string;
@@ -71,6 +89,7 @@ export interface PublishDataSourceResponse {
     name: string;
     contentUrl: string;
     webpageUrl: string;
+    sheetUrl?: string;
     size: number;
     createdAt: string;
     updatedAt: string;
@@ -196,6 +215,7 @@ export class TableauPublisher {
             name: workbook.name || request.workbookName,
             contentUrl: workbook.contentUrl || '',
             webpageUrl: workbook.webpageUrl || '',
+            sheetUrl: workbook.sheetUrl || this.generateSheetUrl(workbook.webpageUrl, views, workbook.name || request.workbookName),
             showTabs: workbook.showTabs || request.showTabs,
             size: workbook.size || 0,
             createdAt: workbook.createdAt || new Date().toISOString(),
@@ -257,6 +277,7 @@ export class TableauPublisher {
             name: workbookNameMatch ? workbookNameMatch[1] : request.workbookName,
             contentUrl: contentUrlMatch ? contentUrlMatch[1] : '',
             webpageUrl: webpageUrlMatch ? webpageUrlMatch[1] : '',
+            sheetUrl: this.generateSheetUrl(webpageUrlMatch ? webpageUrlMatch[1] : '', views, workbookNameMatch ? workbookNameMatch[1] : request.workbookName),
             showTabs: showTabsMatch ? showTabsMatch[1] === 'true' : request.showTabs,
             size: sizeMatch ? parseInt(sizeMatch[1]) : 0,
             createdAt: createdAtMatch ? createdAtMatch[1] : new Date().toISOString(),
@@ -358,6 +379,7 @@ export class TableauPublisher {
             name: datasource.name || request.datasourceName,
             contentUrl: datasource.contentUrl || '',
             webpageUrl: datasource.webpageUrl || '',
+            sheetUrl: datasource.sheetUrl || this.generateSheetUrl(datasource.webpageUrl),
             size: datasource.size || 0,
             createdAt: datasource.createdAt || new Date().toISOString(),
             updatedAt: datasource.updatedAt || new Date().toISOString(),
@@ -409,6 +431,7 @@ export class TableauPublisher {
             name: datasourceNameMatch ? datasourceNameMatch[1] : request.datasourceName,
             contentUrl: contentUrlMatch ? contentUrlMatch[1] : '',
             webpageUrl: webpageUrlMatch ? webpageUrlMatch[1] : '',
+            sheetUrl: this.generateSheetUrl(webpageUrlMatch ? webpageUrlMatch[1] : ''),
             size: sizeMatch ? parseInt(sizeMatch[1]) : 0,
             createdAt: createdAtMatch ? createdAtMatch[1] : new Date().toISOString(),
             updatedAt: updatedAtMatch ? updatedAtMatch[1] : new Date().toISOString(),
@@ -445,6 +468,140 @@ export class TableauPublisher {
       console.error('Tableau datasource publishing failed:', error.response?.data || error.message);
       throw new Error(`Datasource publishing failed: ${error.response?.data || error.message}`);
     }
+  }
+
+  /**
+   * Create a new project in Tableau Server
+   */
+  async createProject(request: CreateProjectRequest): Promise<CreateProjectResponse> {
+    try {
+      const authResponse = await this.auth.authenticate();
+      const token = authResponse.credentials.token;
+
+      const projectData = {
+        project: {
+          name: request.name,
+          description: request.description || '',
+          contentPermissions: 'ManagedByOwner'
+        }
+      };
+
+      const response = await axios.post(
+        `${this.serverUrl}/api/${this.apiVersion}/sites/${this.siteId}/projects`,
+        projectData,
+        {
+          headers: {
+            'X-Tableau-Auth': token,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (response.status === 201) {
+        const project = response.data.project;
+
+        if (!project || !project.id) {
+          throw new Error('Failed to parse project creation response');
+        }
+
+        return {
+          success: true,
+          message: 'Project created successfully',
+          project: {
+            id: project.id,
+            name: project.name || request.name,
+            description: project.description || request.description || '',
+            createdAt: project.createdAt || new Date().toISOString()
+          }
+        };
+      }
+
+      throw new Error('Failed to create project');
+    } catch (error: any) {
+      console.error('Tableau project creation failed:', error.response?.data || error.message);
+      return {
+        success: false,
+        message: `Project creation failed: ${error.response?.data || error.message}`
+      };
+    }
+  }
+
+  /**
+   * Generate a sheet URL from a Tableau webpage URL and views
+   * This converts the workbook/datasource URL to a sheet URL format using actual view data
+   */
+  private generateSheetUrl(webpageUrl: string, views?: Array<{id: string; name: string; contentUrl: string; createdAt: string; updatedAt: string}>, workbookName?: string): string {
+    if (!webpageUrl) {
+      return '';
+    }
+    
+    // If it already has a views path, return as is
+    if (webpageUrl.includes('/views/')) {
+      return webpageUrl;
+    }
+    
+    try {
+      const url = new URL(webpageUrl);
+      const hash = url.hash;
+      
+      // Parse the hash to extract site and workbook info
+      // Format: #/site/site-id/workbooks/workbook-id
+      const hashMatch = hash.match(/#\/site\/([^\/]+)\/workbooks\/(\d+)/);
+      
+      if (hashMatch) {
+        const siteId = hashMatch[1];
+        const workbookId = hashMatch[2];
+        
+        // If we have views, use the first view's contentUrl to construct the sheet URL
+        if (views && views.length > 0) {
+          const firstView = views[0];
+          
+          // Try to extract view name from contentUrl first, then fall back to name
+          let viewName = firstView.name || 'Sheet1';
+          
+          // If contentUrl contains view information, try to extract it
+          if (firstView.contentUrl) {
+            const contentUrlMatch = firstView.contentUrl.match(/\/views\/([^\/]+)/);
+            if (contentUrlMatch) {
+              viewName = contentUrlMatch[1];
+            }
+          }
+          
+          // Construct the sheet URL using the actual view information
+          const sheetUrl = `${url.origin}/#/site/${siteId}/views/${viewName}/Sheet1?:iid=1`;
+          return sheetUrl;
+        } else if (workbookName) {
+          // Use workbook name to construct a more accurate view name
+          // Clean the workbook name to match Tableau's naming convention
+          let cleanWorkbookName = workbookName.replace(/[^a-zA-Z0-9_-]/g, '_');
+          
+          // Remove multiple consecutive underscores and replace with single underscore
+          cleanWorkbookName = cleanWorkbookName.replace(/_+/g, '_');
+          
+          // Remove leading/trailing underscores
+          cleanWorkbookName = cleanWorkbookName.replace(/^_+|_+$/g, '');
+          
+          // Remove any trailing underscores before adding -Workbook_
+          cleanWorkbookName = cleanWorkbookName.replace(/_$/, '');
+          
+          // Construct view name in the format: {workbookName}-Workbook_{workbookId}
+          // This matches the pattern seen in the expected URLs
+          const viewName = `${cleanWorkbookName}`;
+          
+          const sheetUrl = `${url.origin}/#/site/${siteId}/views/${viewName}/Sheet1?:iid=1`;
+          return sheetUrl;
+        } else {
+          // Fallback: construct a generic sheet URL
+          const sheetUrl = `${url.origin}/#/site/${siteId}/views/workbook-${workbookId}/Sheet1?:iid=1`;
+          return sheetUrl;
+        }
+      }
+      
+    } catch (error) {
+      console.warn('Error parsing URL for sheet URL generation:', error);
+    }
+    
+    return webpageUrl;
   }
 
 }
