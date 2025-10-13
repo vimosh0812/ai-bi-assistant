@@ -6,6 +6,9 @@ interface TableauVizProps {
   src: string;
   hideTabs?: boolean;
   hideToolbar?: boolean;
+  allowEdit?: boolean;
+  allowWebAuthoring?: boolean;
+  device?: 'desktop' | 'tablet' | 'phone';
   [key: string]: any;
 }
 
@@ -21,6 +24,9 @@ declare global {
         height?: string | number;
         "hide-tabs"?: boolean;
         "hide-toolbar"?: boolean;
+        "allow-edit"?: boolean;
+        "allow-web-authoring"?: boolean;
+        device?: 'desktop' | 'tablet' | 'phone';
         [key: string]: any;
       };
     }
@@ -31,6 +37,9 @@ export default function TableauViz({
   src,
   hideTabs = true,
   hideToolbar = true,
+  allowEdit = false,
+  allowWebAuthoring = false,
+  device = 'desktop',
   ...props
 }: TableauVizProps) {
   const vizRef = useRef<HTMLDivElement>(null);
@@ -122,6 +131,9 @@ export default function TableauViz({
         height="100%"
         hide-tabs={hideTabs}
         hide-toolbar={hideToolbar}
+        allow-edit={allowEdit}
+        allow-web-authoring={allowWebAuthoring}
+        device={device}
         style={{ width: "100%", height: "100%" }}
         {...props}
       />

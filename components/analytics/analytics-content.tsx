@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { DEFAULT_NAMES } from "@/lib/config";
 import { createClient } from "@/lib/supabase/client";
 import TableauViz from "@/components/tableauviz";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Edit3, Eye } from "lucide-react";
 
 interface PublishResponse {
   success: boolean;
@@ -40,6 +40,7 @@ export default function FileAnalyticsPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [response, setResponse] = useState<PublishResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
 
   // Fetch file details and CSV content
   useEffect(() => {
@@ -158,15 +159,28 @@ export default function FileAnalyticsPage() {
             className="flex items-center gap-2"
           >
             <ArrowLeft className="h-4 w-4" />
-          
+           
           </Button>
           <h1 className="text-2xl font-bold">{fileDetails?.file_name || "CSV File"}</h1>
         </div>
-        {!response?.success && (
-          <Button onClick={handleSubmit} disabled={isUploading}>
-            {isUploading ? "Connecting..." : "Connect to Tableau"}
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {response?.success && response.data?.workbook?.sheetUrl && (
+            <Button
+              variant={isEditMode ? "default" : "outline"}
+              size="sm"
+              onClick={() => setIsEditMode(!isEditMode)}
+              className="flex items-center gap-2"
+            >
+              {isEditMode ? <Eye className="h-4 w-4" /> : <Edit3 className="h-4 w-4" />}
+              {isEditMode ? "View Mode" : "Edit Mode"}
+            </Button>
+          )}
+          {!response?.success && (
+            <Button onClick={handleSubmit} disabled={isUploading}>
+              {isUploading ? "Connecting..." : "Connect to Tableau"}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* CSV Table */}
@@ -210,8 +224,11 @@ export default function FileAnalyticsPage() {
           <div className="rounded-xl border mb-4" style={{ width: '100%', height: '700px' }}>
             <TableauViz 
               src={response.data.workbook.sheetUrl}
-              hideTabs={true}
-              hideToolbar={false}
+              hideTabs={!isEditMode}
+              hideToolbar={!isEditMode}
+              allowEdit={isEditMode}
+              allowWebAuthoring={isEditMode}
+              device="desktop"
             />
           </div>
           <div className="p-4 bg-gray-50 rounded-md">
@@ -219,6 +236,14 @@ export default function FileAnalyticsPage() {
             <pre className="text-xs text-gray-600 p-3 rounded border overflow-x-auto whitespace-pre-wrap break-words">
               <code>{response.data.workbook.sheetUrl}</code>
             </pre>
+            {isEditMode && (
+              <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <p className="text-sm text-blue-800">
+                  <strong>Edit Mode:</strong> You can now edit the visualization directly. 
+                  Changes will be saved to your Tableau workbook.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
