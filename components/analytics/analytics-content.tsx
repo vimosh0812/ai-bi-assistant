@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Papa from "papaparse";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_NAMES } from "@/lib/config";
 import { createClient } from "@/lib/supabase/client";
 import TableauViz from "@/components/tableauviz";
+import { ArrowLeft } from "lucide-react";
 
 interface PublishResponse {
   success: boolean;
@@ -29,7 +30,8 @@ interface PublishResponse {
 
 export default function FileAnalyticsPage() {
   const { folderId, fileId } = useParams();
-const supabase =  createClient();
+  const router = useRouter();
+  const supabase = createClient();
 
   const [csvData, setCsvData] = useState<any[]>([]);
   const [fileDetails, setFileDetails] = useState<any>(null);
@@ -148,7 +150,18 @@ const supabase =  createClient();
   return (
     <div className="container mx-auto p-6">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">{fileDetails?.file_name || "CSV File"}</h1>
+        <div className="flex items-center gap-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => router.push('/dashboard')}
+            className="flex items-center gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          
+          </Button>
+          <h1 className="text-2xl font-bold">{fileDetails?.file_name || "CSV File"}</h1>
+        </div>
         {!response?.success && (
           <Button onClick={handleSubmit} disabled={isUploading}>
             {isUploading ? "Connecting..." : "Connect to Tableau"}
