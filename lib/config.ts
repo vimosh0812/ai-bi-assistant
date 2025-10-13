@@ -37,14 +37,6 @@ export const TABLEAU_SETTINGS = {
   // File size limits
   MAX_FILE_SIZE_MB: 64,
   
-  // Tableau server configuration
-  DEFAULT_SERVER_URL: process.env.TABLEAU_SERVER_URL || 'https://prod-in-a.online.tableau.com',
-  DEFAULT_API_VERSION: process.env.TABLEAU_API_VERSION || '3.20',
-  DEFAULT_SITE_ID: process.env.TABLEAU_SITE_ID || '',
-  DEFAULT_CONTENT_URL: process.env.TABLEAU_CONTENT_URL || '',
-  DEFAULT_PERSONAL_ACCESS_TOKEN: process.env.TABLEAU_PERSONAL_ACCESS_TOKEN || '',
-  DEFAULT_PERSONAL_ACCESS_TOKEN_NAME: process.env.TABLEAU_PERSONAL_ACCESS_TOKEN_NAME || '',
-  DEFAULT_PROJECT_ID: process.env.TABLEAU_PROJECT_ID || '',
 } as const;
 
 // Allowed file extensions
