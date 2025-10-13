@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     const parsed = parse(csvText, { header: true, skipEmptyLines: true });
     const headers = parsed.meta.fields || [];
 
-    const filePath = `${user.id}/${folderId}/${Date.now()}_${fileName}`;
+    const filePath = `${user.id}/${folderId}/${Date.now()}_${fileName}.csv`;
     console.log("Uploading CSV to path:", filePath);
     const { error: uploadError } = await supabase.storage
       .from("csv-files")
