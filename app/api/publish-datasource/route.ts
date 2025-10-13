@@ -76,11 +76,11 @@ export async function POST(request: NextRequest) {
     // Handle CSV files - convert to Hyper using microservice
     if (fileExtension === '.csv') {
       try {
-        console.log('Converting CSV to Hyper format using microservice...');
+        console.log('✅ Converting CSV to Hyper format using microservice...');
         
         const csvHyperServiceUrl = process.env.CSV_HYPER_SERVICE_URL || process.env.NEXT_PUBLIC_CSV_HYPER_SERVICE_URL || 'http://localhost:8000';
         
-        console.log(`Attempting to connect to CSV to Hyper service at: ${csvHyperServiceUrl}`);
+        console.log(`✅ Attempting to connect to CSV to Hyper service at: ${csvHyperServiceUrl}`);
         
         // First check if microservice is available
         try {
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
         finalFileName = path.parse(file.name).name + '.hyper';
         
         const rowCount = conversionResponse.headers.get('X-Row-Count');
-        console.log(`CSV converted to Hyper successfully. ${rowCount || 0} rows processed.`);
+        console.log(`✅✅ CSV converted to Hyper successfully. ${rowCount || 0} rows processed.`);
         
       } catch (error: any) {
         console.error('CSV to Hyper conversion error:', error);
