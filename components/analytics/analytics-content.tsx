@@ -6,6 +6,7 @@ import Papa from "papaparse";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_NAMES } from "@/lib/config";
 import { createClient } from "@/lib/supabase/client";
+import TableauViz from "@/components/tableauviz";
 
 interface PublishResponse {
   success: boolean;
@@ -142,16 +143,7 @@ const supabase =  createClient();
     }
   };
 
-  const generateEmbedCode = (sheetUrl: string) =>
-    `<script type='module' src='https://prod-in-a.online.tableau.com/javascripts/api/tableau.embedding.3.latest.min.js'></script>
-<tableau-viz 
-  id='tableau-viz' 
-  src='${sheetUrl}' 
-  width='100%' 
-  height='700' 
-  hide-tabs 
-  toolbar='bottom'>
-</tableau-viz>`;
+  // Remove the generateEmbedCode function as we'll use the TableauViz component instead
 
   return (
     <div className="container mx-auto p-6">
@@ -202,17 +194,17 @@ const supabase =  createClient();
       {/* Tableau Embed */}
       {response?.success && response.data?.workbook?.sheetUrl && (
         <div>
-          <iframe
-            src={response.data.workbook.sheetUrl}
-            width="100%"
-            height="700"
-            allowFullScreen
-            className="rounded-xl border mb-4"
-          />
+          <div className="rounded-xl border mb-4" style={{ width: '100%', height: '700px' }}>
+            <TableauViz 
+              src={response.data.workbook.sheetUrl}
+              hideTabs={true}
+              hideToolbar={false}
+            />
+          </div>
           <div className="p-4 bg-gray-50 rounded-md">
-            <h3 className="text-sm font-medium text-gray-900 mb-2">Embed Code</h3>
+            <h3 className="text-sm font-medium text-gray-900 mb-2">Embed URL</h3>
             <pre className="text-xs text-gray-600 p-3 rounded border overflow-x-auto whitespace-pre-wrap break-words">
-              <code>{generateEmbedCode(response.data.workbook.sheetUrl)}</code>
+              <code>{response.data.workbook.sheetUrl}</code>
             </pre>
           </div>
         </div>
