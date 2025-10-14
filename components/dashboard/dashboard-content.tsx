@@ -13,8 +13,10 @@ import { FileUploadScreen } from  "@/components/file-upload-screen"
 import { useFolders } from "@/hooks/use-folders"
 import { useFiles } from "@/hooks/use-files"
 import type { Folder, File } from "@/types/database"
+import { useRouter } from "next/navigation"
 
 export function DashboardContent() {
+  const router = useRouter();
   const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null)
   const [showCreateFolder, setShowCreateFolder] = useState(false)
   const [uploadScreenActive, setUploadScreenActive] = useState(false) // <-- replaces dialog
@@ -63,8 +65,9 @@ export function DashboardContent() {
   }
 
   const handleViewFile = (file: File) => {
-    setViewingFile(file)
-    setChatbotFile(file)
+    // setViewingFile(file)
+    // setChatbotFile(file)
+    router.push(`/dashboard/${selectedFolder?.id}/${file.id}`);
   }
 
   const handleViewData = (file: File) => {

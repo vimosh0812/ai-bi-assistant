@@ -36,7 +36,7 @@ const navItems: NavItem[] = [
   },
   // {
   //   title: "Analytics",
-  //   href: "/dashboard/analytics",
+  //   href: "/analytics",
   //   icon: BarChart3,
   //   roles: ["admin", "user"],
   // },

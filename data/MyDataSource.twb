@@ -1,0 +1,83 @@
+<?xml version='1.0' encoding='utf-8' ?>
+
+<!-- build 20252.25.0806.2353                               -->
+<workbook original-version='18.1' source-build='2025.2.0 (20252.25.0806.2353)' version='18.1' xml:base='https://prod-in-a.online.tableau.com' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <document-format-change-manifest>
+    <AnimationOnByDefault />
+    <ISO8601DefaultCalendarPref />
+    <MarkAnimation />
+    <ObjectModelEncapsulateLegacy />
+    <ObjectModelTableType />
+    <SchemaViewerObjectModel />
+    <SheetIdentifierTracking />
+    <WindowsPersistSimpleIdentifiers />
+  </document-format-change-manifest>
+  <repository-location derived-from='http://localhost:9100/t/vimosh01-5eef3e46e5/workbooks/MyDataSource_17604133819560?rev=1.1' id='MyDataSource_17604133819560' path='/t/vimosh01-5eef3e46e5/workbooks' revision='1.1' site='vimosh01-5eef3e46e5' />
+  <preferences />
+   <datasources>
+    <datasource caption='MyDataSource_0A0BCEA2' inline='true' name='MyDataSource_0A0BCEA2' version='18.1'>
+      <repository-location id='07a2db81-b0d0-42c1-b702-b875b794a255' path='/t/vimosh01-5eef3e46e5/datasources' revision='1.0' site='vimosh01-5eef3e46e5' />
+      <connection channel='https' class='hyper' dbname='MyDataSource_0A0BCEA2' directory='dataserver' port='443' server='prod-in-a.online.tableau.com' server-ds-friendly-name='MyDataSource_0A0BCEA2' username=''>
+        <relation connection='MyDataSource_0A0BCEA2' name='MyDataSource_0A0BCEA2' table='[Extract]' type='table' />
+      </connection>
+    </datasource>
+  </datasources>
+  <datasources>
+    <datasource caption='MyDataSource' inline='true' name='sqlproxy.0wmio8c04lwzxg1079xic0nmuz3e' version='18.1'>
+      <repository-location derived-from='http://localhost:9100/t/vimosh01-5eef3e46e5/datasources/MyDataSource_17604133797660?rev=1.0' id='MyDataSource_17604133797660' path='/t/vimosh01-5eef3e46e5/datasources' revision='1.1' site='vimosh01-5eef3e46e5' />
+      <connection channel='https' class='sqlproxy' dbname='MyDataSource_17604133797660' directory='dataserver' port='443' server='prod-in-a.online.tableau.com' server-ds-friendly-name='MyDataSource' username=''>
+        <relation connection='sqlproxy.0wmio8c04lwzxg1079xic0nmuz3e' name='sqlproxy' table='[sqlproxy]' type='table' />
+
+      </connection>
+      <aliases enabled='yes' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Sheet 1'>
+      <repository-location derived-from='http://localhost:9100/t/vimosh01-5eef3e46e5/workbooks/MyDataSource_17604133819560/Sheet1?rev=' id='320462' path='/t/vimosh01-5eef3e46e5/workbooks/MyDataSource_17604133819560' revision='' site='vimosh01-5eef3e46e5' />
+      <table>
+        <view>
+          <datasources />
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Automatic' />
+          </pane>
+        </panes>
+        <rows />
+        <cols />
+      </table>
+      <simple-id uuid='{7699D7CB-0483-4D58-97A1-A78B6920E26F}' />
+    </worksheet>
+  </worksheets>
+  <windows>
+    <window class='worksheet' maximized='true' name='Sheet 1'>
+      <cards>
+        <edge name='left'>
+          <strip size='160'>
+            <card type='pages' />
+            <card type='filters' />
+            <card type='marks' />
+          </strip>
+        </edge>
+        <edge name='top'>
+          <strip size='31'>
+            <card type='columns' />
+          </strip>
+          <strip size='31'>
+            <card type='rows' />
+          </strip>
+          <strip size='31'>
+            <card type='title' />
+          </strip>
+        </edge>
+      </cards>
+      <simple-id uuid='{2CA8AEE7-8267-45EE-8A2E-C15462E324EF}' />
+    </window>
+  </windows>
+</workbook>

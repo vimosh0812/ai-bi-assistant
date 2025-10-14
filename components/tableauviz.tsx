@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface TableauVizProps {
   src: string;
   hideTabs?: boolean;
   hideToolbar?: boolean;
+  allowEdit?: boolean;
+  allowWebAuthoring?: boolean;
+  device?: 'desktop' | 'tablet' | 'phone';
   [key: string]: any;
 }
 
@@ -21,6 +24,9 @@ declare global {
         height?: string | number;
         "hide-tabs"?: boolean;
         "hide-toolbar"?: boolean;
+        "allow-edit"?: boolean;
+        "allow-web-authoring"?: boolean;
+        device?: 'desktop' | 'tablet' | 'phone';
         [key: string]: any;
       };
     }
@@ -31,23 +37,91 @@ export default function TableauViz({
   src,
   hideTabs = true,
   hideToolbar = true,
+  allowEdit = false,
+  allowWebAuthoring = false,
+  device = 'desktop',
   ...props
 }: TableauVizProps) {
   const vizRef = useRef<HTMLDivElement>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isTableauReady, setIsTableauReady] = useState(false);
 
   useEffect(() => {
-    // Load Tableau API once
-    if (!document.getElementById("tableauScript")) {
-      const script = document.createElement("script");
-      script.id = "tableauScript";
-      script.type = "module";
-      script.src =
-        "https://public.tableau.com/javascripts/api/tableau.embedding.3.latest.js";
-      script.onload = () => console.log("Tableau API loaded");
-      script.onerror = () => console.error("Failed to load Tableau API");
-      document.body.appendChild(script);
+    // Check if Tableau script is already loaded
+    const existingScript = document.getElementById("tableauScript");
+    if (existingScript) {
+      setIsTableauReady(true);
+      setIsLoading(false);
+      return;
     }
+
+    // Load Tableau API
+    const script = document.createElement("script");
+    script.id = "tableauScript";
+    script.type = "module";
+    script.src =
+      "https://prod-in-a.online.tableau.com/javascripts/api/tableau.embedding.3.latest.min.js";
+    
+    script.onload = () => {
+      console.log("Tableau API loaded successfully");
+      setIsTableauReady(true);
+      setIsLoading(false);
+      // Dispatch a custom event to notify components that Tableau is ready
+      window.dispatchEvent(new CustomEvent('tableauReady'));
+    };
+    
+    script.onerror = (error) => {
+      console.error("Failed to load Tableau API:", error);
+      setError("Failed to load Tableau visualization. Please check your internet connection and try again.");
+      setIsLoading(false);
+      // Dispatch an error event
+      window.dispatchEvent(new CustomEvent('tableauError', { detail: error }));
+    };
+    
+    document.head.appendChild(script);
+
+    // Listen for Tableau ready event
+    const handleTableauReady = () => {
+      setIsTableauReady(true);
+      setIsLoading(false);
+    };
+
+    const handleTableauError = () => {
+      setError("Tableau visualization failed to load");
+      setIsLoading(false);
+    };
+
+    window.addEventListener('tableauReady', handleTableauReady);
+    window.addEventListener('tableauError', handleTableauError);
+
+    return () => {
+      window.removeEventListener('tableauReady', handleTableauReady);
+      window.removeEventListener('tableauError', handleTableauError);
+    };
   }, []);
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-full bg-red-50 border border-red-200 rounded-lg">
+        <div className="text-center p-4">
+          <p className="text-red-600 font-medium">Visualization Error</p>
+          <p className="text-red-500 text-sm mt-1">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full bg-gray-50 border border-gray-200 rounded-lg">
+        <div className="text-center p-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+          <p className="text-gray-600">Loading visualization...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative w-full h-full">
@@ -57,6 +131,9 @@ export default function TableauViz({
         height="100%"
         hide-tabs={hideTabs}
         hide-toolbar={hideToolbar}
+        allow-edit={allowEdit}
+        allow-web-authoring={allowWebAuthoring}
+        device={device}
         style={{ width: "100%", height: "100%" }}
         {...props}
       />
