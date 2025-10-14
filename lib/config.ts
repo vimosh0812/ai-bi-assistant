@@ -12,16 +12,21 @@ export const DEFAULT_NAMES = {
   WORKBOOK_NAME: 'MyWorkbook',
   
   // Template datasource name used in workbook template replacement
-  TEMPLATE_DATASOURCE_NAME: 'dandan003',
+  TEMPLATE_DATASOURCE_NAME: 'MyDataSource',
+  
+  // UUID-based naming patterns
+  UUID_PREFIXES: {
+    DATASOURCE: 'DataSource',
+    WORKBOOK: 'Workbook', 
+    PROJECT: 'Project',
+    EXTRACT: 'Extract',
+  },
 } as const;
 
 // File naming patterns
 export const FILE_PATTERNS = {
-  // Template workbook file path
-  TEMPLATE_WORKBOOK_PATH: 'data/new-ds.twb',
-  
-  // Template workbook filename
-  TEMPLATE_WORKBOOK_FILENAME: 'new-ds.twb',
+  // Generated workbook filename
+  GENERATED_WORKBOOK_FILENAME: 'workbook.twb',
 } as const;
 
 // Tableau publishing settings
@@ -36,7 +41,6 @@ export const TABLEAU_SETTINGS = {
   
   // File size limits
   MAX_FILE_SIZE_MB: 64,
-  
 } as const;
 
 // Allowed file extensions

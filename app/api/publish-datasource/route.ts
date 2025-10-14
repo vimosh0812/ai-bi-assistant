@@ -5,16 +5,27 @@ import { v4 as uuidv4 } from 'uuid';
 import { TableauPublisher } from '@/lib/tableau-publisher';
 import { TableauCredentials } from '@/lib/tableau-auth';
 import { DEFAULT_NAMES, FILE_PATTERNS, TABLEAU_SETTINGS, ALLOWED_EXTENSIONS } from '@/lib/config';
+import { 
+  generateProjectUUID, 
+  generateDatasourceName, 
+  generateExtractObjectId,
+  generateObjectId 
+} from '@/lib/uuid-utils';
 
 export async function POST(request: NextRequest) {
   try {
     // Parse form data
     const formData = await request.formData();
     const file = formData.get('file') as File;
-    const datasourceName = formData.get('datasourceName') as string;
+    const userDatasourceName = formData.get('datasourceName') as string;
     const projectId = formData.get('projectId') as string;
     const overwrite = formData.get('overwrite') === 'true';
     const encryptExtracts = formData.get('encryptExtracts') === 'true';
+
+    // Generate unique datasource name with UUID
+    const datasourceName = userDatasourceName 
+      ? generateDatasourceName(userDatasourceName)
+      : generateDatasourceName(DEFAULT_NAMES.DATA_SOURCE_NAME);
 
     // Validate required fields
     if (!file) {
@@ -76,11 +87,11 @@ export async function POST(request: NextRequest) {
     // Handle CSV files - convert to Hyper using microservice
     if (fileExtension === '.csv') {
       try {
-        console.log('✅ Converting CSV to Hyper format using microservice...');
+        console.log('Converting CSV to Hyper format using microservice...');
         
         const csvHyperServiceUrl = process.env.CSV_HYPER_SERVICE_URL || process.env.NEXT_PUBLIC_CSV_HYPER_SERVICE_URL || 'http://localhost:8000';
         
-        console.log(`✅ Attempting to connect to CSV to Hyper service at: ${csvHyperServiceUrl}`);
+        console.log(`Attempting to connect to CSV to Hyper service at: ${csvHyperServiceUrl}`);
         
         // First check if microservice is available
         try {
@@ -131,7 +142,7 @@ export async function POST(request: NextRequest) {
         finalFileName = path.parse(file.name).name + '.hyper';
         
         const rowCount = conversionResponse.headers.get('X-Row-Count');
-        console.log(`✅✅ CSV converted to Hyper successfully. ${rowCount || 0} rows processed.`);
+        console.log(`CSV converted to Hyper successfully. ${rowCount || 0} rows processed.`);
         
       } catch (error: any) {
         console.error('CSV to Hyper conversion error:', error);
@@ -166,9 +177,9 @@ export async function POST(request: NextRequest) {
     // Create publisher instance
     const publisher = new TableauPublisher(credentials);
 
-    // Create a new project with random UUID
-    const projectUuid = uuidv4();
-    const projectName = `CSV Upload - ${projectUuid}`;
+    // Create a new project with UUID
+    const projectUuid = generateProjectUUID();
+    const projectName = `Data Upload - ${projectUuid}`;
     
     console.log(`Creating new project: ${projectName}`);
     
@@ -197,38 +208,111 @@ export async function POST(request: NextRequest) {
       fileName: finalFileName,
     });
 
-    // After datasource publish, publish the template workbook,
-    // replacing occurrences of the placeholder datasource name with the new one
+    // After datasource publish, generate a workbook XML with datasource connection
     let workbookResult: any | null = null;
     try {
-      const templatePath = path.join(process.cwd(), FILE_PATTERNS.TEMPLATE_WORKBOOK_PATH);
-      let twbXml = fs.readFileSync(templatePath, 'utf8');
-      if (datasourceName) {
-        // Replace all standalone occurrences of the template datasource name with the new one
-        // This covers caption, dbname, server-ds-friendly-name, and derived-from URL segment
-        const pattern = new RegExp(`\\b${DEFAULT_NAMES.TEMPLATE_DATASOURCE_NAME}\\b`, 'g');
-        twbXml = twbXml.replace(pattern, datasourceName);
-      }
-      const modifiedBuffer = Buffer.from(twbXml, 'utf8');
+      // Generate UUIDs for workbook XML template
+      const extractObjectId = generateExtractObjectId();
+      const datasourceObjectId = generateObjectId();
+      
+      // Generate workbook XML with proper datasource connection
+      const workbookXml = `<?xml version='1.0' encoding='utf-8' ?>
+<workbook original-version='18.1' source-build='2025.2.0 (20252.25.0806.2353)' version='18.1' xml:base='${credentials.serverUrl}' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <document-format-change-manifest>
+    <AnimationOnByDefault />
+    <ISO8601DefaultCalendarPref />
+    <MarkAnimation />
+    <ObjectModelEncapsulateLegacy />
+    <ObjectModelTableType />
+    <SchemaViewerObjectModel />
+    <SheetIdentifierTracking />
+    <WindowsPersistSimpleIdentifiers />
+  </document-format-change-manifest>
+  <preferences />
+  <datasources>
+    <datasource caption='${datasourceName}' inline='true' name='sqlproxy.0wmio8c04lwzxg1079xic0nmuz3e' version='18.1'>
+      <repository-location derived-from='http://localhost:9100/t/vimosh01-5eef3e46e5/datasources/${datasourceName}?rev=1.0' id='${datasourceName}' path='/t/vimosh01-5eef3e46e5/datasources' revision='1.1' site='vimosh01-5eef3e46e5' />
+      <connection channel='https' class='sqlproxy' dbname='${datasourceName}' directory='dataserver' port='443' server='prod-in-a.online.tableau.com' server-ds-friendly-name='${datasourceName}' username=''>
+        <relation connection='sqlproxy.0wmio8c04lwzxg1079xic0nmuz3e' name='sqlproxy' table='[sqlproxy]' type='table' />
+      </connection>
+      <aliases enabled='yes' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Sheet 1'>
+      <table>
+        <view>
+          <datasources />
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Automatic' />
+          </pane>
+        </panes>
+        <rows />
+        <cols />
+      </table>
+    </worksheet>
+  </worksheets>
+  <windows>
+    <window class='worksheet' maximized='true' name='Sheet 1'>
+      <cards>
+        <edge name='left'>
+          <strip size='160'>
+            <card type='pages' />
+            <card type='filters' />
+            <card type='marks' />
+          </strip>
+        </edge>
+        <edge name='top'>
+          <strip size='31'>
+            <card type='columns' />
+          </strip>
+          <strip size='31'>
+            <card type='rows' />
+          </strip>
+          <strip size='31'>
+            <card type='title' />
+          </strip>
+        </edge>
+      </cards>
+    </window>
+  </windows>
+</workbook>`;
 
+console.log(workbookXml);
+
+      const modifiedBuffer = Buffer.from(workbookXml, 'utf8');
+
+      // Generate unique workbook name with UUID
+      const workbookName = generateDatasourceName(datasourceName);
+      
       workbookResult = await publisher.publishWorkbook({
-        workbookName: datasourceName,
+        workbookName: workbookName,
         projectId: projectResult.project!.id,
         showTabs: TABLEAU_SETTINGS.DEFAULT_SHOW_TABS,
         overwrite,
         encryptExtracts,
         file: modifiedBuffer,
-        fileName: FILE_PATTERNS.TEMPLATE_WORKBOOK_FILENAME,
+        fileName: FILE_PATTERNS.GENERATED_WORKBOOK_FILENAME,
       });
+      
+      console.log(`Generated and published workbook XML with datasource connection to '${datasourceName}'`);
+      console.log(`Datasource ID: ${result.datasource.id}`);
     } catch (workbookErr: any) {
-      console.error('Failed to publish template workbook:', workbookErr?.response?.data || workbookErr?.message || workbookErr);
+      console.error('Failed to publish generated workbook:', workbookErr?.response?.data || workbookErr?.message || workbookErr);
     }
 
     const workbookUrl: string | null = workbookResult?.workbook?.webpageUrl || null;
 
     return NextResponse.json({
       success: true,
-      message: workbookResult ? 'Data source and workbook published successfully' : 'Data source published successfully',
+      message: workbookResult ? 'Data source and workbook published successfully with datasource connection.' : 'Data source published successfully',
       data: {
         datasource: result.datasource,
         workbook: workbookResult?.workbook || null,

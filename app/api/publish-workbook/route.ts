@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TableauPublisher } from '@/lib/tableau-publisher';
 import { TableauCredentials } from '@/lib/tableau-auth';
-import { TABLEAU_SETTINGS, ALLOWED_EXTENSIONS } from '@/lib/config';
+import { TABLEAU_SETTINGS, ALLOWED_EXTENSIONS, DEFAULT_NAMES } from '@/lib/config';
+import { generateWorkbookName } from '@/lib/uuid-utils';
 import fs from 'fs';
 
 export async function POST(request: NextRequest) {
@@ -9,11 +10,16 @@ export async function POST(request: NextRequest) {
     // Parse form data
     const formData = await request.formData();
     const file = formData.get('file') as File;
-    const workbookName = formData.get('workbookName') as string;
+    const userWorkbookName = formData.get('workbookName') as string;
     const projectId = formData.get('projectId') as string;
     const showTabs = formData.get('showTabs') === 'true';
     const overwrite = formData.get('overwrite') === 'true';
     const encryptExtracts = formData.get('encryptExtracts') === 'true';
+
+    // Generate unique workbook name with UUID
+    const workbookName = userWorkbookName 
+      ? generateWorkbookName(userWorkbookName)
+      : generateWorkbookName(DEFAULT_NAMES.WORKBOOK_NAME);
 
     // Validate required fields
     if (!file) {
@@ -23,7 +29,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!workbookName) {
+    if (!userWorkbookName) {
       return NextResponse.json(
         { error: 'Workbook name is required' },
         { status: 400 }
