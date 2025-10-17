@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { DEFAULT_NAMES } from "@/lib/config";
 import { createClient } from "@/lib/supabase/client";
 import TableauViz from "@/components/tableauviz";
-import { ArrowLeft, Edit3, Eye } from "lucide-react";
+import { ArrowLeft, Edit3, Eye, BarChart3, TrendingUp } from "lucide-react";
+import { OpenAIKPIAnalysis } from "@/types/kpi";
+import { KPIChart } from "@/components/kpi-chart";
 
 interface PublishResponse {
   success: boolean;
@@ -41,6 +43,10 @@ export default function FileAnalyticsPage() {
   const [response, setResponse] = useState<PublishResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [kpiAnalysis, setKpiAnalysis] = useState<OpenAIKPIAnalysis | null>(null);
+  const [isGeneratingKPI, setIsGeneratingKPI] = useState(false);
+  const [hasKpiAnalysis, setHasKpiAnalysis] = useState(false);
+  const [showKpiView, setShowKpiView] = useState(false);
 
   // Fetch file details and CSV content
   useEffect(() => {
@@ -53,6 +59,7 @@ export default function FileAnalyticsPage() {
 
       if (error) return console.error(error);
       setFileDetails(data);
+      setHasKpiAnalysis(data.has_kpi_analysis || false);
 
       if (data.connected_to_tableau && data.embed_url) {
         setResponse({
@@ -76,6 +83,11 @@ export default function FileAnalyticsPage() {
       } else {
         fetchCsv(data.storage_path);
       }
+
+      // Check if KPI analysis exists
+      if (data.has_kpi_analysis) {
+        fetchKpiAnalysis();
+      }
     };
 
     const fetchCsv = async (path: string) => {
@@ -88,6 +100,19 @@ export default function FileAnalyticsPage() {
       const filename = path.split("/").pop() || "data.csv";
       setFile(new File([text], filename, { type: "csv" }));
       setPublishType("datasource");
+    };
+
+    const fetchKpiAnalysis = async () => {
+      try {
+        const response = await fetch(`/api/get-kpi-analysis?fileId=${fileId}`);
+        const data = await response.json();
+        
+        if (data.success && data.kpiAnalysis) {
+          setKpiAnalysis(data.kpiAnalysis);
+        }
+      } catch (error) {
+        console.error("Error fetching KPI analysis:", error);
+      }
     };
 
     fetchFile();
@@ -146,6 +171,66 @@ export default function FileAnalyticsPage() {
     }
   };
 
+  const generateKpiAnalysis = async () => {
+    if (!csvData.length || !fileDetails) return;
+    
+    setIsGeneratingKPI(true);
+    setError(null);
+    
+    try {
+      // Generate KPI analysis
+      const response = await fetch("/api/generate-kpi-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          headers: Object.keys(csvData[0] || {}), 
+          rows: csvData,
+          fileId: fileDetails.id
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
+      setKpiAnalysis(data);
+      
+      // Store the KPI analysis
+      const storeResponse = await fetch("/api/store-kpi-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          fileId: fileDetails.id,
+          kpiAnalysis: data
+        }),
+      });
+      
+      const storeData = await storeResponse.json();
+      
+      if (storeData.success) {
+        setHasKpiAnalysis(true);
+        // Update file details
+        setFileDetails((prev: any) => ({
+          ...prev,
+          has_kpi_analysis: true,
+          kpi_analysis_id: storeData.kpiAnalysisId
+        }));
+      }
+      
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsGeneratingKPI(false);
+    }
+  };
+
+  const viewKpiAnalytics = () => {
+    console.log("viewKpiAnalytics called", { currentShowKpiView: showKpiView, hasKpiAnalysis, responseSuccess: response?.success });
+    setShowKpiView(!showKpiView);
+  };
+
   // Remove the generateEmbedCode function as we'll use the TableauViz component instead
 
   return (
@@ -164,7 +249,37 @@ export default function FileAnalyticsPage() {
           <h1 className="text-2xl font-bold">{fileDetails?.file_name || "CSV File"}</h1>
         </div>
         <div className="flex items-center gap-2">
-          {response?.success && response.data?.workbook?.sheetUrl && (
+          {/* Generate KPI Button - Hidden if already generated */}
+          {!hasKpiAnalysis && (
+            <Button
+              onClick={generateKpiAnalysis}
+              disabled={isGeneratingKPI || !csvData.length}
+              className="flex items-center gap-2"
+              variant="default"
+            >
+              <BarChart3 className="h-4 w-4" />
+              {isGeneratingKPI ? "Generating..." : "Generate KPI Summary"}
+            </Button>
+          )}
+          
+          {/* View Analytics Button - Only show if analytics generated */}
+          {hasKpiAnalysis && (
+            <Button
+              onClick={() => {
+                console.log("View Analytics clicked", { showKpiView, hasKpiAnalysis, responseSuccess: response?.success });
+                viewKpiAnalytics();
+              }}
+              className="flex items-center gap-2 cursor-pointer"
+              variant={response?.success ? "outline" : "default"}
+              type="button"
+            >
+              <TrendingUp className="h-4 w-4" />
+              {showKpiView ? "Hide Analytics" : "View Analytics"}
+            </Button>
+          )}
+          
+          {/* Tableau Connection Buttons - Only show if Tableau connected */}
+          {/* {response?.success && response.data?.workbook?.sheetUrl && (
             <Button
               variant={isEditMode ? "default" : "outline"}
               size="sm"
@@ -174,9 +289,15 @@ export default function FileAnalyticsPage() {
               {isEditMode ? <Eye className="h-4 w-4" /> : <Edit3 className="h-4 w-4" />}
               {isEditMode ? "View Mode" : "Edit Mode"}
             </Button>
-          )}
+          )} */}
+          
+          {/* Connect Tableau Button - Only show if not connected */}
           {!response?.success && (
-            <Button onClick={handleSubmit} disabled={isUploading}>
+            <Button 
+              onClick={handleSubmit} 
+              disabled={isUploading}
+              variant={hasKpiAnalysis ? "outline" : "default"}
+            >
               {isUploading ? "Connecting..." : "Connect to Tableau"}
             </Button>
           )}
@@ -184,7 +305,7 @@ export default function FileAnalyticsPage() {
       </div>
 
       {/* CSV Table */}
-      {!response?.success && (
+      {!response?.success && !showKpiView && (
         <div className="overflow-x-auto border rounded-xl mb-6">
           {csvData.length > 0 ? (
             <table className="min-w-full text-sm text-left">
@@ -218,8 +339,55 @@ export default function FileAnalyticsPage() {
         </div>
       )}
 
+      {/* KPI Analytics View */}
+      {showKpiView && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold text-gray-900">KPI Analytics</h2>
+          </div>
+          
+          {isGeneratingKPI ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                <p className="text-gray-600">Generating KPI analysis...</p>
+              </div>
+            </div>
+          ) : kpiAnalysis ? (
+            <>
+              <div className="mb-8">
+                <h3 className="text-xl font-semibold text-gray-900 mb-4">Analysis Summary</h3>
+                <p className="text-gray-600 text-lg">{kpiAnalysis.summary}</p>
+              </div>
+
+              {/* KPI Charts Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {kpiAnalysis.metrics.map((metric, index) => (
+                  <KPIChart
+                    key={`chart-${index}`}
+                    title={metric.name}
+                    description={metric.description}
+                    chartType={metric.chartType as any}
+                    data={csvData}
+                    chartConfig={metric.chartConfig}
+                    sqlQuery={metric.sqlQuery}
+                    xAxisQuery={metric.xAxisQuery}
+                    category={metric.category}
+                  />
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-12">
+              <p className="text-gray-500">No KPI analysis available</p>
+            </div>
+          )}
+        </div>
+      )}
+
+
       {/* Tableau Embed */}
-      {response?.success && response.data?.workbook?.sheetUrl && (
+      {response?.success && response.data?.workbook?.sheetUrl && !showKpiView && (
         <div>
           <div className="rounded-xl border mb-4" style={{ width: '100%', height: '700px' }}>
             <TableauViz 
@@ -236,14 +404,14 @@ export default function FileAnalyticsPage() {
             <pre className="text-xs text-gray-600 p-3 rounded border overflow-x-auto whitespace-pre-wrap break-words">
               <code>{response.data.workbook.sheetUrl}</code>
             </pre>
-            {isEditMode && (
+            {/* {isEditMode && (
               <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
                 <p className="text-sm text-blue-800">
                   <strong>Edit Mode:</strong> You can now edit the visualization directly. 
                   Changes will be saved to your Tableau workbook.
                 </p>
               </div>
-            )}
+            )} */}
           </div>
         </div>
       )}

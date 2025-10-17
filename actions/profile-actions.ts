@@ -67,7 +67,7 @@ export async function getProfile(userId: string): Promise<Profile | null> {
         }
         
         if (data) {
-            console.log("[Profile Actions] Profile found:", data)
+            console.log("[Profile Actions] Profile found:")
             return data
         }
         
