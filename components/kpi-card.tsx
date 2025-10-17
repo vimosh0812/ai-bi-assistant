@@ -94,9 +94,18 @@ export function KPICard({
           if (numericValue !== undefined) {
             setCalculatedValue(Number(numericValue));
           } else {
-            // If no numeric value, show the first value
+            // If no numeric value, show the first value (coerce to string or number safely)
             const firstValue = Object.values(firstResult)[0];
-            setCalculatedValue(firstValue || "-");
+            if (typeof firstValue === 'number') {
+              setCalculatedValue(firstValue);
+            } else if (typeof firstValue === 'string') {
+              setCalculatedValue(firstValue);
+            } else if (firstValue !== null && firstValue !== undefined) {
+              // For objects/arrays convert to JSON string to keep state type-safe
+              setCalculatedValue(JSON.stringify(firstValue));
+            } else {
+              setCalculatedValue("-");
+            }
           }
         } else {
           setSqlResults([]);
