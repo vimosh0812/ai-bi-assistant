@@ -72,6 +72,12 @@ export async function POST(req: Request) {
       max_tokens: 500,
     });
 
+    // Print token usage for summary generation
+    console.log("OpenAI Summary Token Usage:");
+    console.log("- Prompt tokens:", completion.usage?.prompt_tokens || "N/A");
+    console.log("- Completion tokens:", completion.usage?.completion_tokens || "N/A");
+    console.log("- Total tokens:", completion.usage?.total_tokens || "N/A");
+
     const rawResponse = completion.choices[0]?.message?.content ?? "{}";
 
     let parsed: {
