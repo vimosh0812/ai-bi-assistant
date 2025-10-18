@@ -38,57 +38,88 @@ export async function POST(request: NextRequest) {
       try {
         console.log(`Executing SQL for metric: ${metric.name}`);
 
-        // Execute Y-axis query (main data) - no cache, execute once and store
+        // Execute Y-axis query (main data) - execute directly instead of HTTP request
         let yAxisResult;
         try {
-          // Try internal API call first
-          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || 'http://localhost:3000';
-          const fullUrl = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`;
-          const yAxisResponse = await fetch(`${fullUrl}/api/execute-sql-unified`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-              sqlQuery: metric.sqlQuery, 
-              data: csvData, 
-              headers: headers,
-              method: 'auto',
-              fileId,
-              userId,
-              useCache: false  // Don't use SQL cache, we're storing in JSONB
-            }),
-          });
-
-          if (!yAxisResponse.ok) {
-            throw new Error(`HTTP ${yAxisResponse.status}: ${yAxisResponse.statusText}`);
-          }
-
-          yAxisResult = await yAxisResponse.json();
-        } catch (fetchError) {
-          console.error(`Fetch failed for Y-axis query ${metric.name}:`, fetchError);
-          console.log(`Attempted URL: /api/execute-sql-unified`);
-          console.log(`Environment variables - NEXT_PUBLIC_APP_URL: ${process.env.NEXT_PUBLIC_APP_URL}, VERCEL_URL: ${process.env.VERCEL_URL}`);
+          // Import the unified SQL execution function directly
+          const sqlUtils = await import('@/lib/sql-utils');
+          const executeWithSQLite = sqlUtils.executeWithSQLite;
+          const executeWithSimple = sqlUtils.executeWithSimple;
           
-          // Fallback: Execute SQL directly using the simple function
-          try {
-            const { executeSimpleSQL } = await import('@/lib/sql-utils');
-            
-            console.log(`Using direct simple execution for ${metric.name}`);
-            
-            const results = executeSimpleSQL(metric.sqlQuery, csvData, headers);
-            
-            yAxisResult = {
-              success: true,
-              results: results,
-              executionMethod: 'simple (fallback)',
-              executionTime: '0ms'
-            };
-          } catch (directError) {
-            console.error(`Direct execution also failed for ${metric.name}:`, directError);
-            yAxisResult = {
-              success: false,
-              error: `Fetch failed: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}. Direct execution failed: ${directError instanceof Error ? directError.message : String(directError)}`
-            };
+          console.log(`Executing Y-axis query directly for ${metric.name}`);
+          
+          // Determine execution method (same logic as execute-sql-unified)
+          const dataLength = csvData.length;
+          const upperQuery = metric.sqlQuery.toUpperCase();
+          let executionMethod = 'simple';
+          
+          // For very large datasets, prefer SQLite
+          if (dataLength > 10000) {
+            executionMethod = 'sqlite';
           }
+          
+          // For complex analytical queries, prefer SQLite
+          if (upperQuery.includes('WINDOW') || 
+              upperQuery.includes('PARTITION BY') || 
+              upperQuery.includes('RANK()') ||
+              upperQuery.includes('ROW_NUMBER()') ||
+              upperQuery.includes('LAG(') ||
+              upperQuery.includes('LEAD(') ||
+              upperQuery.includes('CASE WHEN') ||
+              upperQuery.includes('UNION') ||
+              upperQuery.includes('CTE') ||
+              upperQuery.includes('WITH ')) {
+            executionMethod = 'sqlite';
+          }
+          
+          // For queries with multiple JOINs, prefer SQLite
+          const joinCount = (upperQuery.match(/\bJOIN\b/g) || []).length;
+          if (joinCount > 2) {
+            executionMethod = 'sqlite';
+          }
+          
+          // For simple queries on small datasets, use simple method
+          if (dataLength < 1000 && 
+              (upperQuery.includes('SELECT') && !upperQuery.includes('GROUP BY') && !upperQuery.includes('ORDER BY'))) {
+            executionMethod = 'simple';
+          }
+          
+          const startTime = Date.now();
+          let results: any[] = [];
+          
+          try {
+            if (executionMethod === 'sqlite') {
+              results = await executeWithSQLite(metric.sqlQuery, csvData, headers);
+            } else {
+              results = await executeWithSimple(metric.sqlQuery, csvData, headers);
+            }
+          } catch (sqlError) {
+            // Fallback to simple method if advanced methods fail
+            if (executionMethod !== 'simple') {
+              console.log(`Falling back to simple execution for ${metric.name}`);
+              results = await executeWithSimple(metric.sqlQuery, csvData, headers);
+              executionMethod = 'simple (fallback)';
+            } else {
+              throw sqlError;
+            }
+          }
+          
+          const executionTime = Date.now() - startTime;
+          
+          yAxisResult = {
+            success: true,
+            results: results,
+            executionMethod: executionMethod,
+            executionTime: `${executionTime}ms`,
+            cached: false
+          };
+          
+        } catch (directError) {
+          console.error(`Direct execution failed for ${metric.name}:`, directError);
+          yAxisResult = {
+            success: false,
+            error: `Direct execution failed: ${directError instanceof Error ? directError.message : String(directError)}`
+          };
         }
         
         if (!yAxisResult.success) {
@@ -108,47 +139,76 @@ export async function POST(request: NextRequest) {
           };
         }
 
-        // Execute X-axis query if provided - no cache, execute once and store
+        // Execute X-axis query if provided - execute directly instead of HTTP request
         let xAxisData = [];
         if (metric.xAxisQuery) {
           try {
-            const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || 'http://localhost:3000';
-            const fullUrl = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`;
-            const xAxisResponse = await fetch(`${fullUrl}/api/execute-sql-unified`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ 
-                sqlQuery: metric.xAxisQuery, 
-                data: csvData, 
-                headers: headers,
-                method: 'auto',
-                fileId,
-                userId,
-                useCache: false  // Don't use SQL cache, we're storing in JSONB
-              }),
-            });
-
-            if (!xAxisResponse.ok) {
-              throw new Error(`HTTP ${xAxisResponse.status}: ${xAxisResponse.statusText}`);
-            }
-
-            const xAxisResult = await xAxisResponse.json();
-            if (xAxisResult.success) {
-              xAxisData = xAxisResult.results || [];
-            }
-          } catch (fetchError) {
-            console.error(`Fetch failed for X-axis query ${metric.name}:`, fetchError);
+            console.log(`Executing X-axis query directly for ${metric.name}`);
             
-            // Fallback: Execute SQL directly
-            try {
-              const { executeSimpleSQL } = await import('@/lib/sql-utils');
-              
-              const results = executeSimpleSQL(metric.xAxisQuery, csvData, headers);
-              xAxisData = results || [];
-            } catch (directError) {
-              console.error(`Direct X-axis execution also failed for ${metric.name}:`, directError);
-              xAxisData = [];
+            // Import the unified SQL execution function directly
+            const sqlUtils = await import('@/lib/sql-utils');
+            const executeWithSQLite = sqlUtils.executeWithSQLite;
+            const executeWithSimple = sqlUtils.executeWithSimple;
+            
+            // Determine execution method (same logic as execute-sql-unified)
+            const dataLength = csvData.length;
+            const upperQuery = metric.xAxisQuery.toUpperCase();
+            let executionMethod = 'simple';
+            
+            // For very large datasets, prefer SQLite
+            if (dataLength > 10000) {
+              executionMethod = 'sqlite';
             }
+            
+            // For complex analytical queries, prefer SQLite
+            if (upperQuery.includes('WINDOW') || 
+                upperQuery.includes('PARTITION BY') || 
+                upperQuery.includes('RANK()') ||
+                upperQuery.includes('ROW_NUMBER()') ||
+                upperQuery.includes('LAG(') ||
+                upperQuery.includes('LEAD(') ||
+                upperQuery.includes('CASE WHEN') ||
+                upperQuery.includes('UNION') ||
+                upperQuery.includes('CTE') ||
+                upperQuery.includes('WITH ')) {
+              executionMethod = 'sqlite';
+            }
+            
+            // For queries with multiple JOINs, prefer SQLite
+            const joinCount = (upperQuery.match(/\bJOIN\b/g) || []).length;
+            if (joinCount > 2) {
+              executionMethod = 'sqlite';
+            }
+            
+            // For simple queries on small datasets, use simple method
+            if (dataLength < 1000 && 
+                (upperQuery.includes('SELECT') && !upperQuery.includes('GROUP BY') && !upperQuery.includes('ORDER BY'))) {
+              executionMethod = 'simple';
+            }
+            
+            let results: any[] = [];
+            
+            try {
+              if (executionMethod === 'sqlite') {
+                results = await executeWithSQLite(metric.xAxisQuery, csvData, headers);
+              } else {
+                results = await executeWithSimple(metric.xAxisQuery, csvData, headers);
+              }
+            } catch (sqlError) {
+              // Fallback to simple method if advanced methods fail
+              if (executionMethod !== 'simple') {
+                console.log(`Falling back to simple execution for X-axis ${metric.name}`);
+                results = await executeWithSimple(metric.xAxisQuery, csvData, headers);
+              } else {
+                throw sqlError;
+              }
+            }
+            
+            xAxisData = results || [];
+            
+          } catch (directError) {
+            console.error(`Direct X-axis execution failed for ${metric.name}:`, directError);
+            xAxisData = [];
           }
         }
 
