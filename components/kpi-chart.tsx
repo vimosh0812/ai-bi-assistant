@@ -430,13 +430,13 @@ export function KPIChart({
           </div>
           
           {/* Main SQL Query */}
-          {/* <div className="space-y-3">
+          <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-medium">SQL Query</h4>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => onCopyQuery(sqlQuery)}
+                // onClick={() => onCopyQuery(sqlQuery)}
                 className="text-xs"
               >
                 <Copy className="h-3 w-3 mr-1" />
@@ -446,7 +446,7 @@ export function KPIChart({
             <div className="text-xs text-muted-foreground font-mono bg-gray-100 p-3 rounded overflow-x-auto">
               <code>{sqlQuery}</code>
             </div>
-          </div> */}
+          </div>
         </div>
       </CardContent>
     </Card>

@@ -61,6 +61,11 @@ export default function AnalyticsPage() {
   const [activeTab, setActiveTab] = useState("upload")
   const [fileDetails, setFileDetails] = useState<any>(null)
   const [isLoadingFile, setIsLoadingFile] = useState(false)
+  const [aiDateTimeColumns, setAiDateTimeColumns] = useState<{ name: string; format: string; hasTime: boolean }[]>([])
+  const [processedData, setProcessedData] = useState<Record<string, any>[]>([])
+  const [processedHeaders, setProcessedHeaders] = useState<string[]>([])
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [isDataProcessed, setIsDataProcessed] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
   const fileId = searchParams.get("fileId")
@@ -216,7 +221,11 @@ export default function AnalyticsPage() {
   const preprocessData = (
     headers: string[],
     data: Record<string, any>[],
-    aiOutput: { emailColumns?: { name: string; type: string }[]; currencyColumns?: { name: string; currency: string }[] }
+    aiOutput: { 
+      emailColumns?: { name: string; type: string }[]; 
+      currencyColumns?: { name: string; currency: string }[];
+      dateTimeColumns?: { name: string; format: string; hasTime: boolean }[];
+    }
   ) => {
     let processedData = [...data]
     let processedHeaders = [...headers]
@@ -250,6 +259,75 @@ export default function AnalyticsPage() {
           }
         })
         return newRow
+      })
+    }
+
+    // Process date/time columns
+    if (aiOutput.dateTimeColumns?.length) {
+      aiOutput.dateTimeColumns.forEach((dateCol) => {
+        const colName = dateCol.name
+        if (processedHeaders.includes(colName)) {
+          // Add new columns for year, month, day
+          const yearCol = `${colName}_year`
+          const monthCol = `${colName}_month`
+          const dayCol = `${colName}_day`
+          const timeCol = `${colName}_time`
+          
+          // Add new headers
+          if (!processedHeaders.includes(yearCol)) processedHeaders.push(yearCol)
+          if (!processedHeaders.includes(monthCol)) processedHeaders.push(monthCol)
+          if (!processedHeaders.includes(dayCol)) processedHeaders.push(dayCol)
+          if (dateCol.hasTime && !processedHeaders.includes(timeCol)) processedHeaders.push(timeCol)
+          
+          // Process each row
+          processedData = processedData.map((row) => {
+            const newRow = { ...row }
+            const dateValue = row[colName]
+            
+            if (dateValue && dateValue !== "" && dateValue !== null && dateValue !== undefined) {
+              try {
+                const date = new Date(dateValue)
+                if (!isNaN(date.getTime())) {
+                  // Extract year, month, day
+                  newRow[yearCol] = date.getFullYear()
+                  newRow[monthCol] = date.getMonth() + 1 // JavaScript months are 0-indexed
+                  newRow[dayCol] = date.getDate()
+                  
+                  // Extract time if present
+                  if (dateCol.hasTime) {
+                    const hours = date.getHours().toString().padStart(2, '0')
+                    const minutes = date.getMinutes().toString().padStart(2, '0')
+                    const seconds = date.getSeconds().toString().padStart(2, '0')
+                    newRow[timeCol] = `${hours}:${minutes}:${seconds}`
+                  }
+                  
+                  // Format the original date column
+                  newRow[colName] = date.toISOString().split('T')[0] // YYYY-MM-DD format
+                } else {
+                  // If date parsing fails, set empty values
+                  newRow[yearCol] = ""
+                  newRow[monthCol] = ""
+                  newRow[dayCol] = ""
+                  if (dateCol.hasTime) newRow[timeCol] = ""
+                }
+              } catch (error) {
+                // If date parsing fails, set empty values
+                newRow[yearCol] = ""
+                newRow[monthCol] = ""
+                newRow[dayCol] = ""
+                if (dateCol.hasTime) newRow[timeCol] = ""
+              }
+            } else {
+              // If no date value, set empty values
+              newRow[yearCol] = ""
+              newRow[monthCol] = ""
+              newRow[dayCol] = ""
+              if (dateCol.hasTime) newRow[timeCol] = ""
+            }
+            
+            return newRow
+          })
+        }
       })
     }
 
@@ -307,6 +385,7 @@ export default function AnalyticsPage() {
       const data = await res.json()
       console.log("AI Summary response:", data)
       setAiSummary(data.summary || "No summary available")
+      setAiDateTimeColumns(data.dateTimeColumns || [])
     } catch (err) {
       console.error(err)
       setAiSummary("Failed to generate AI summary")
@@ -317,11 +396,32 @@ export default function AnalyticsPage() {
     setSummary(generateDataQualitySummary(headers, rows))
   }
 
+  const handlePreprocess = async () => {
+    if (!rawData.length) return
+    
+    setIsProcessing(true)
+    
+    const result = preprocessData(headers, rawData, {
+      emailColumns: [],
+      currencyColumns: [],
+      dateTimeColumns: aiDateTimeColumns,
+    })
+    
+    setProcessedHeaders(result.processedHeaders)
+    setProcessedData(result.processedData)
+    setIsDataProcessed(true)
+    setIsProcessing(false)
+  }
 
   const generateKPIAnalysis = async () => {
     if (!rawData.length) return
     
-    console.log(`Generating KPI analysis for ${rawData.length} rows of data`);
+    // Use processed data if available, otherwise use raw data
+    const dataToAnalyze = isDataProcessed && processedData.length > 0 ? processedData : rawData;
+    const headersToUse = isDataProcessed && processedHeaders.length > 0 ? processedHeaders : headers;
+    
+    console.log(`Generating KPI analysis for ${dataToAnalyze.length} rows of data`);
+    console.log(`Using ${isDataProcessed ? 'processed' : 'raw'} data with ${headersToUse.length} columns`);
     console.log("Full dataset will be used for SQL execution, sample data for OpenAI analysis");
     
     setLoadingKPI(true)
@@ -330,8 +430,8 @@ export default function AnalyticsPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          headers: headers, 
-          rows: rawData  // Full dataset sent to API
+          headers: headersToUse, 
+          rows: dataToAnalyze  // Use processed data if available
         }),
       })
       const data = await res.json()
@@ -558,14 +658,26 @@ export default function AnalyticsPage() {
                 <>
                   <div className="flex justify-between items-center">
                     <h3 className="text-lg font-semibold">Column Insights</h3>
-                    <Button 
-                      onClick={generateKPIAnalysis}
-                      disabled={loadingKPI || !rawData.length}
-                      className="flex items-center gap-2"
-                    >
-                      <Activity className="h-4 w-4" />
-                      {loadingKPI ? "Generating..." : "Next: Generate KPI Analysis"}
-                    </Button>
+                    <div className="flex gap-2">
+                      {aiDateTimeColumns.length > 0 && !isDataProcessed && (
+                        <Button 
+                          onClick={handlePreprocess}
+                          disabled={isProcessing}
+                          className="flex items-center gap-2"
+                        >
+                          <Cpu className="h-4 w-4" />
+                          {isProcessing ? "Processing..." : "Preprocess Data"}
+                        </Button>
+                      )}
+                      <Button 
+                        onClick={generateKPIAnalysis}
+                        disabled={loadingKPI || !rawData.length}
+                        className="flex items-center gap-2"
+                      >
+                        <Activity className="h-4 w-4" />
+                        {loadingKPI ? "Generating..." : "Next: Generate KPI Analysis"}
+                      </Button>
+                    </div>
                   </div>
 
                   {/* AI Summary */}
@@ -579,6 +691,93 @@ export default function AnalyticsPage() {
                       </CardHeader>
                       <CardContent>
                         <p className="whitespace-pre-line text-sm">{aiSummary}</p>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Date/Time Columns Detection */}
+                  {aiDateTimeColumns.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">📅 Date/Time Columns Detected</CardTitle>
+                        <CardDescription>
+                          AI has detected date/time columns that will be processed
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
+                          {aiDateTimeColumns.map((col, idx) => (
+                            <div key={col.name ?? idx} className="border rounded-lg p-3">
+                              <div className="font-medium">{col.name}</div>
+                              <div className="text-sm text-muted-foreground">
+                                Format: {col.format}
+                                {col.hasTime && <span className="ml-1">(includes time)</span>}
+                              </div>
+                              <div className="text-sm text-blue-600">
+                                Will create: {col.name}_year, {col.name}_month, {col.name}_day
+                                {col.hasTime && <span>, {col.name}_time</span>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Processed Data Display */}
+                  {isDataProcessed && processedData.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">✅ Processed Data Preview</CardTitle>
+                        <CardDescription>
+                          Your data has been preprocessed with new date/time columns
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <div className="text-sm text-muted-foreground">
+                            Rows: {processedData.length} | Columns: {processedHeaders.length}
+                          </div>
+                          <div className="overflow-x-auto border rounded-lg">
+                            <table className="min-w-full text-sm">
+                              <thead className="bg-gray-50">
+                                <tr>
+                                  {processedHeaders.slice(0, 10).map((header) => (
+                                    <th key={header} className="px-3 py-2 text-left font-medium">
+                                      {header}
+                                    </th>
+                                  ))}
+                                  {processedHeaders.length > 10 && (
+                                    <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                                      +{processedHeaders.length - 10} more
+                                    </th>
+                                  )}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {processedData.slice(0, 5).map((row, index) => (
+                                  <tr key={index} className="border-t">
+                                    {processedHeaders.slice(0, 10).map((header) => (
+                                      <td key={header} className="px-3 py-2">
+                                        {row[header] || '-'}
+                                      </td>
+                                    ))}
+                                    {processedHeaders.length > 10 && (
+                                      <td className="px-3 py-2 text-muted-foreground">
+                                        ...
+                                      </td>
+                                    )}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          {processedData.length > 5 && (
+                            <div className="text-sm text-muted-foreground text-center">
+                              Showing first 5 rows of {processedData.length} total rows
+                            </div>
+                          )}
+                        </div>
                       </CardContent>
                     </Card>
                   )}

@@ -50,6 +50,7 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
   const [processedData, setProcessedData] = useState<Record<string, any>[]>([])
   const [aiEmailColumns, setAiEmailColumns] = useState<(string | { name: string; type: string })[]>([])
   const [aiCurrencyColumns, setAiCurrencyColumns] = useState<(string | { name: string; currency: string })[]>([])
+  const [aiDateTimeColumns, setAiDateTimeColumns] = useState<{ name: string; format: string; hasTime: boolean }[]>([])
   const [importantColumns, setImportantColumns] = useState<string[]>([])
   const [irrelevantColumns, setIrrelevantColumns] = useState<string[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
@@ -124,7 +125,11 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
   const preprocessData = (
     headers: string[],
     data: Record<string, any>[],
-    aiOutput: { emailColumns?: { name: string; type: string }[]; currencyColumns?: { name: string; currency: string }[] }
+    aiOutput: { 
+      emailColumns?: { name: string; type: string }[]; 
+      currencyColumns?: { name: string; currency: string }[];
+      dateTimeColumns?: { name: string; format: string; hasTime: boolean }[];
+    }
   ) => {
     let processedData = [...data]
     let processedHeaders = [...headers]
@@ -158,6 +163,75 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
           }
         })
         return newRow
+      })
+    }
+
+    // Process date/time columns
+    if (aiOutput.dateTimeColumns?.length) {
+      aiOutput.dateTimeColumns.forEach((dateCol) => {
+        const colName = dateCol.name
+        if (processedHeaders.includes(colName)) {
+          // Add new columns for year, month, day
+          const yearCol = `${colName}_year`
+          const monthCol = `${colName}_month`
+          const dayCol = `${colName}_day`
+          const timeCol = `${colName}_time`
+          
+          // Add new headers
+          if (!processedHeaders.includes(yearCol)) processedHeaders.push(yearCol)
+          if (!processedHeaders.includes(monthCol)) processedHeaders.push(monthCol)
+          if (!processedHeaders.includes(dayCol)) processedHeaders.push(dayCol)
+          if (dateCol.hasTime && !processedHeaders.includes(timeCol)) processedHeaders.push(timeCol)
+          
+          // Process each row
+          processedData = processedData.map((row) => {
+            const newRow = { ...row }
+            const dateValue = row[colName]
+            
+            if (dateValue && dateValue !== "" && dateValue !== null && dateValue !== undefined) {
+              try {
+                const date = new Date(dateValue)
+                if (!isNaN(date.getTime())) {
+                  // Extract year, month, day
+                  newRow[yearCol] = date.getFullYear()
+                  newRow[monthCol] = date.getMonth() + 1 // JavaScript months are 0-indexed
+                  newRow[dayCol] = date.getDate()
+                  
+                  // Extract time if present
+                  if (dateCol.hasTime) {
+                    const hours = date.getHours().toString().padStart(2, '0')
+                    const minutes = date.getMinutes().toString().padStart(2, '0')
+                    const seconds = date.getSeconds().toString().padStart(2, '0')
+                    newRow[timeCol] = `${hours}:${minutes}:${seconds}`
+                  }
+                  
+                  // Format the original date column
+                  newRow[colName] = date.toISOString().split('T')[0] // YYYY-MM-DD format
+                } else {
+                  // If date parsing fails, set empty values
+                  newRow[yearCol] = ""
+                  newRow[monthCol] = ""
+                  newRow[dayCol] = ""
+                  if (dateCol.hasTime) newRow[timeCol] = ""
+                }
+              } catch (error) {
+                // If date parsing fails, set empty values
+                newRow[yearCol] = ""
+                newRow[monthCol] = ""
+                newRow[dayCol] = ""
+                if (dateCol.hasTime) newRow[timeCol] = ""
+              }
+            } else {
+              // If no date value, set empty values
+              newRow[yearCol] = ""
+              newRow[monthCol] = ""
+              newRow[dayCol] = ""
+              if (dateCol.hasTime) newRow[timeCol] = ""
+            }
+            
+            return newRow
+          })
+        }
       })
     }
 
@@ -234,8 +308,7 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
       setImportantColumns(data.importantColumns || [])
       setIrrelevantColumns(data.irrelevantColumns || [])
       setAiEmailColumns(data.emailColumns || [])
-
-
+      setAiDateTimeColumns(data.dateTimeColumns || [])
       setAiCurrencyColumns((data.currencyColumns || []).map((c: any) => c.name))
     } catch (err) {
       console.error(err)
@@ -263,6 +336,7 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
         ? { name: col, currency: "unknown" }
         : col 
       ),
+      dateTimeColumns: aiDateTimeColumns,
     })
     setModifiedHeaders(result.processedHeaders)
     setProcessedData(result.processedData)
@@ -635,6 +709,27 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
                         return null
                       }
                     })}
+                </ul>
+              </div>
+            )}
+
+            {aiDateTimeColumns.length > 0 && (
+              <div className="bg-white shadow rounded-lg p-6 flex flex-col h-full min-h-[220px]">
+                <h3 className="text-lg font-semibold mb-4">📅 Date/Time Columns Detected</h3>
+                <ul className="list-disc ml-5 text-sm flex-1">
+                  {aiDateTimeColumns.map((col, idx) => (
+                    <li key={col.name ?? idx} className="mb-2">
+                      <div className="font-medium">{col.name}</div>
+                      <div className="text-xs text-muted-foreground ml-2">
+                        Format: {col.format}
+                        {col.hasTime && <span className="ml-1">(includes time)</span>}
+                      </div>
+                      <div className="text-xs text-blue-600 ml-2">
+                        Will create: {col.name}_year, {col.name}_month, {col.name}_day
+                        {col.hasTime && <span>, {col.name}_time</span>}
+                      </div>
+                    </li>
+                  ))}
                 </ul>
               </div>
             )}

@@ -8,15 +8,39 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 function analyzeColumnValues(data: any[], headers: string[]) {
   const analysis: {
     [key: string]: {
-      type: 'categorical' | 'continuous' | 'mixed' | 'many_values';
+      type: 'categorical' | 'continuous' | 'mixed' | 'many_values' | 'year' | 'month' | 'day' | 'time';
       uniqueValues: number;
       sampleValues: any[];
       isNumeric: boolean;
       isDate: boolean;
       isString: boolean;
       valueRange?: { min: any; max: any };
+      isPreprocessedDate?: boolean;
+      originalDateColumn?: string;
     }
   } = {};
+
+  // First pass: identify preprocessed date columns
+  const dateColumnGroups: { [key: string]: string[] } = {};
+  headers.forEach(header => {
+    if (header.endsWith('_year')) {
+      const baseColumn = header.replace('_year', '');
+      if (!dateColumnGroups[baseColumn]) dateColumnGroups[baseColumn] = [];
+      dateColumnGroups[baseColumn].push('year');
+    } else if (header.endsWith('_month')) {
+      const baseColumn = header.replace('_month', '');
+      if (!dateColumnGroups[baseColumn]) dateColumnGroups[baseColumn] = [];
+      dateColumnGroups[baseColumn].push('month');
+    } else if (header.endsWith('_day')) {
+      const baseColumn = header.replace('_day', '');
+      if (!dateColumnGroups[baseColumn]) dateColumnGroups[baseColumn] = [];
+      dateColumnGroups[baseColumn].push('day');
+    } else if (header.endsWith('_time')) {
+      const baseColumn = header.replace('_time', '');
+      if (!dateColumnGroups[baseColumn]) dateColumnGroups[baseColumn] = [];
+      dateColumnGroups[baseColumn].push('time');
+    }
+  });
 
   headers.forEach(header => {
     const values = data.map(row => row[header]).filter(val => 
@@ -41,9 +65,35 @@ function analyzeColumnValues(data: any[], headers: string[]) {
     // Check if values are strings
     const isString = values.every(val => typeof val === 'string');
     
+    // Check if this is a preprocessed date column
+    let isPreprocessedDate = false;
+    let originalDateColumn = '';
+    let dateType: 'year' | 'month' | 'day' | 'time' | undefined;
+    
+    if (header.endsWith('_year')) {
+      isPreprocessedDate = true;
+      originalDateColumn = header.replace('_year', '');
+      dateType = 'year';
+    } else if (header.endsWith('_month')) {
+      isPreprocessedDate = true;
+      originalDateColumn = header.replace('_month', '');
+      dateType = 'month';
+    } else if (header.endsWith('_day')) {
+      isPreprocessedDate = true;
+      originalDateColumn = header.replace('_day', '');
+      dateType = 'day';
+    } else if (header.endsWith('_time')) {
+      isPreprocessedDate = true;
+      originalDateColumn = header.replace('_time', '');
+      dateType = 'time';
+    }
+    
     // Determine column type
-    let type: 'categorical' | 'continuous' | 'mixed' | 'many_values';
-    if (uniqueCount <= 10 && !isNumeric) {
+    let type: 'categorical' | 'continuous' | 'mixed' | 'many_values' | 'year' | 'month' | 'day' | 'time';
+    
+    if (isPreprocessedDate) {
+      type = dateType!;
+    } else if (uniqueCount <= 10 && !isNumeric) {
       type = 'categorical';
     } else if (isNumeric && uniqueCount > 10) {
       type = 'continuous';
@@ -72,11 +122,13 @@ function analyzeColumnValues(data: any[], headers: string[]) {
       isNumeric,
       isDate,
       isString,
-      valueRange
+      valueRange,
+      isPreprocessedDate,
+      originalDateColumn
     };
   });
   
-  return analysis;
+  return { analysis, dateColumnGroups };
 }
 
 export async function POST(req: Request) {
@@ -119,8 +171,9 @@ export async function POST(req: Request) {
     console.log(`Sample data sent to OpenAI: ${sampleRows.length} rows`);
 
     // Analyze column values to help OpenAI understand data structure
-    const columnAnalysis = analyzeColumnValues(sampleRows, headers);
+    const { analysis: columnAnalysis, dateColumnGroups } = analyzeColumnValues(sampleRows, headers);
     console.log("Column analysis:", columnAnalysis);
+    console.log("Date column groups:", dateColumnGroups);
 
     const preview = sampleRows.map((row, i) => `${i + 1}. ${JSON.stringify(row)}`).join("\n");
 
@@ -148,30 +201,62 @@ export async function POST(req: Request) {
         analysisText += ` - TOO MANY UNIQUE VALUES (${analysis.uniqueValues}) - DO NOT USE for X-axis labels`;
       } else if (analysis.type === 'mixed') {
         analysisText += ` - Mixed data type, use carefully`;
+      } else if (analysis.type === 'year') {
+        analysisText += ` - PREPROCESSED YEAR column (${analysis.uniqueValues} unique years) - PERFECT for year-wise analysis`;
+        if (analysis.uniqueValues >= 2 && analysis.uniqueValues <= 5) {
+          analysisText += ` - IDEAL for year-wise bar chart comparisons (2-5 years)`;
+        } else if (analysis.uniqueValues > 5) {
+          analysisText += ` - Good for line charts showing trends over many years`;
+        }
+      } else if (analysis.type === 'month') {
+        analysisText += ` - PREPROCESSED MONTH column (${analysis.uniqueValues} unique months) - Perfect for monthly analysis`;
+      } else if (analysis.type === 'day') {
+        analysisText += ` - PREPROCESSED DAY column - Use for day-of-month analysis`;
+      } else if (analysis.type === 'time') {
+        analysisText += ` - PREPROCESSED TIME column - Use for hourly analysis`;
       }
       
       if (analysis.isDate) {
         analysisText += ` - DATE column, good for time-series analysis`;
       }
       
+      if (analysis.isPreprocessedDate) {
+        analysisText += ` - Part of preprocessed date group: ${analysis.originalDateColumn}`;
+      }
+      
       return analysisText;
+    }).join('\n')}
+    
+    PREPROCESSED DATE COLUMNS AVAILABLE:
+    ${Object.entries(dateColumnGroups).map(([baseColumn, types]) => {
+      return `- ${baseColumn}: [${types.join(', ')}] - Use these for time-based analysis instead of raw date columns`;
     }).join('\n')}
     
     CHART GENERATION RULES:
     - Use CATEGORICAL columns (≤10 unique values) for X-axis labels ONLY
     - Use CONTINUOUS columns (numeric, many values) for Y-axis values ONLY
-    - Use DATE columns for time-series charts (LINE charts)
+    - Use PREPROCESSED DATE columns (year, month, day, time) for time-based analysis
     - NEVER use MANY_VALUES columns (>10 unique values) for X-axis labels
     - Generate X-axis queries to get unique values from categorical columns only
     - Generate Y-axis queries to aggregate continuous columns by categorical groups
     - If no suitable categorical columns exist, create summary charts instead of grouped charts
     
+    PREPROCESSED DATE COLUMN RULES (PRIORITY):
+    - For YEAR columns with 2-5 unique values: Use BAR charts for year-wise comparisons
+    - For YEAR columns with >5 unique values: Use LINE charts for trend analysis
+    - For MONTH columns: Use BAR or LINE charts for monthly analysis
+    - For DAY columns: Use BAR charts for day-of-month analysis
+    - For TIME columns: Use BAR charts for hourly analysis
+    - ALWAYS prefer preprocessed date columns over raw date columns
+    - Use the original date column name in chart titles (e.g., "order_date_year" becomes "Order Date by Year")
+    
     TIME-SERIES CHART RULES:
-    - For DATE columns: Generate LINE charts with time on X-axis
-    - Create separate yearly and monthly analysis (NO QUARTERLY)
-    - Use SQL functions: YEAR(date_column), MONTH(date_column)
-    - Group by time periods and aggregate metrics
-    - Focus on months and years only, avoid daily granularity
+    - PRIORITY: Use preprocessed YEAR, MONTH, DAY columns instead of raw date columns
+    - For YEAR columns: Generate yearly analysis with appropriate chart type based on unique count
+    - For MONTH columns: Generate monthly analysis within years
+    - For DAY columns: Generate day-of-month analysis
+    - Create separate metrics for different time granularities
+    - Focus on business-relevant time periods
     
     PIE CHART RULES:
     - For CATEGORICAL columns (≤10 unique values): Generate PIE or DOUGHNUT charts
@@ -257,7 +342,16 @@ export async function POST(req: Request) {
     - Include proper aliases for calculated fields (e.g., "as total_revenue")
     - For time-series: use date columns in ORDER BY for chronological order
     
-    TIME-SERIES SQL GUIDELINES:
+    PREPROCESSED DATE SQL GUIDELINES (PRIORITY):
+    - For yearly analysis: GROUP BY [column_name]_year, ORDER BY [column_name]_year
+    - For monthly analysis: GROUP BY [column_name]_year, [column_name]_month, ORDER BY [column_name]_year, [column_name]_month
+    - For day analysis: GROUP BY [column_name]_day, ORDER BY [column_name]_day
+    - For time analysis: GROUP BY [column_name]_time, ORDER BY [column_name]_time
+    - Use the preprocessed columns directly - NO need for date functions
+    - Create separate metrics for different time granularities
+    - Focus on business-relevant time periods
+    
+    TIME-SERIES SQL GUIDELINES (FALLBACK):
     - For yearly analysis: GROUP BY YEAR(date_column), ORDER BY YEAR(date_column)
     - For monthly analysis: GROUP BY YEAR(date_column), MONTH(date_column), ORDER BY YEAR, MONTH
     - Use date functions: YEAR(), MONTH(), DATE_FORMAT()

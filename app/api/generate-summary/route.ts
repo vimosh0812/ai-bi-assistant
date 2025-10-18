@@ -40,6 +40,11 @@ export async function POST(req: Request) {
   - Do NOT treat numeric columns like Quantity, Count, or Units as currency even if other columns contain currency symbols.
   - Suggest modified headers where currency columns should be renamed as 'column_name (currency name or symbol)' for clarity.
   - Optionally, describe how numeric conversion can be applied to currency columns.
+  - Identify columns that contain date and time information. Look for:
+    1) Column names that suggest dates/times (e.g., date, time, created_at, updated_at, timestamp, birth_date, order_date)
+    2) Values that look like dates/times in various formats (YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY, etc.)
+    3) Values that contain both date and time information
+  - For each date/time column, include the detected format and whether it contains time information
   - Mark columns that are very important for understanding the dataset, and also mark columns that seem very irrelevant for the purposes of analysis.
 
   Return a JSON object like this:
@@ -52,6 +57,10 @@ export async function POST(req: Request) {
     "currencyColumns": [
     { "name": "column3", "currency": "USD" },
     { "name": "column4", "currency": "INR" }
+    ],
+    "dateTimeColumns": [
+    { "name": "column5", "format": "YYYY-MM-DD", "hasTime": false },
+    { "name": "column6", "format": "MM/DD/YYYY HH:mm", "hasTime": true }
     ],
     "modifiedHeaders": ["col1", "col2 (currency name or symbol)", "col3"],
     "importantColumns": ["column5", "column6"],
@@ -84,8 +93,9 @@ export async function POST(req: Request) {
       summary: string;
       emailColumns: string[];
       currencyColumns: string[];
+      dateTimeColumns: { name: string; format: string; hasTime: boolean }[];
       modifiedHeaders: string[];
-    } = { summary: "No summary", emailColumns: [], currencyColumns: [], modifiedHeaders: headers };
+    } = { summary: "No summary", emailColumns: [], currencyColumns: [], dateTimeColumns: [], modifiedHeaders: headers };
     console.log("AI Summary raw response:", rawResponse);
     try {
       parsed = JSON.parse(rawResponse);
@@ -98,7 +108,7 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error("AI Summary error:", err);
     return NextResponse.json(
-      { summary: "Failed to generate AI summary", emailColumns: [], currencyColumns: [], modifiedHeaders: [] },
+      { summary: "Failed to generate AI summary", emailColumns: [], currencyColumns: [], dateTimeColumns: [], modifiedHeaders: [] },
       { status: 500 }
     );
   }
