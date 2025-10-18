@@ -46,6 +46,8 @@ interface KPIChartProps {
   sqlQuery: string
   xAxisQuery?: string
   category?: string
+  fileId?: string
+  userId?: string
   onDelete?: () => void
   showDeleteButton?: boolean
 }
@@ -59,6 +61,8 @@ export function KPIChart({
   sqlQuery,
   xAxisQuery,
   category,
+  fileId,
+  userId,
   onDelete,
   showDeleteButton = false
 }: KPIChartProps) {
@@ -85,7 +89,10 @@ export function KPIChart({
             sqlQuery, 
             data, 
             headers: Object.keys(data[0] || {}),
-            method: 'auto' // Let the system choose the best method
+            method: 'auto', // Let the system choose the best method
+            fileId,
+            userId,
+            useCache: true
           }),
         });
         
@@ -102,7 +109,10 @@ export function KPIChart({
               sqlQuery: xAxisQuery, 
               data, 
               headers: Object.keys(data[0] || {}),
-              method: 'auto'
+              method: 'auto',
+              fileId,
+              userId,
+              useCache: true
             }),
           });
           
@@ -686,6 +696,8 @@ export function KPIChart({
                   xAxisQuery={xAxisQuery}
                   data={data}
                   headers={data.length > 0 ? Object.keys(data[0]) : []}
+                  fileId={fileId}
+                  userId={userId}
                 />
               </div>
             ) : (

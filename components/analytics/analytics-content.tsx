@@ -6,6 +6,7 @@ import Papa from "papaparse";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_NAMES } from "@/lib/config";
 import { createClient } from "@/lib/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
 import TableauViz from "@/components/tableauviz";
 import { ArrowLeft, Edit3, Eye, BarChart3, TrendingUp, Home } from "lucide-react";
 import { OpenAIKPIAnalysis } from "@/types/kpi";
@@ -36,6 +37,7 @@ export default function FileAnalyticsPage() {
   const { folderId, fileId } = useParams();
   const router = useRouter();
   const supabase = createClient();
+  const { user } = useAuth();
 
   const [csvData, setCsvData] = useState<any[]>([]);
   const [fileDetails, setFileDetails] = useState<any>(null);
@@ -467,6 +469,8 @@ export default function FileAnalyticsPage() {
                     sqlQuery={metric.sqlQuery}
                     xAxisQuery={metric.xAxisQuery}
                     category={metric.category}
+                    fileId={fileId as string}
+                    userId={user?.id}
                     showDeleteButton={true}
                     onDelete={() => setDeletingMetricIndex(index)}
                   />

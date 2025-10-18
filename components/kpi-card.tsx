@@ -18,6 +18,8 @@ interface KPICardProps {
   sqlQuery: string;
   xAxisQuery?: string;
   data: any[];
+  fileId?: string;
+  userId?: string;
   onCopyQuery: (query: string) => void;
 }
 
@@ -54,6 +56,8 @@ export function KPICard({
   sqlQuery,
   xAxisQuery,
   data,
+  fileId,
+  userId,
   onCopyQuery,
 }: KPICardProps) {
   const [showQueries, setShowQueries] = useState(false);
@@ -76,7 +80,10 @@ export function KPICard({
           body: JSON.stringify({ 
             sqlQuery, 
             data, 
-            headers: Object.keys(data[0] || {})
+            headers: Object.keys(data[0] || {}),
+            fileId,
+            userId,
+            useCache: true
           }),
         });
         
