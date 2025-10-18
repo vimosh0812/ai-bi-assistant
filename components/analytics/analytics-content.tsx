@@ -54,6 +54,53 @@ export default function FileAnalyticsPage() {
   const [folderName, setFolderName] = useState<string>("");
   const [deletingMetricIndex, setDeletingMetricIndex] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isExecutingSQL, setIsExecutingSQL] = useState(false);
+
+  // Execute SQL for KPI metrics and store results
+  const executeKPISQL = async (analysis: OpenAIKPIAnalysis) => {
+    if (!fileId || !user?.id || !csvData.length) return;
+
+    // Check if ALL metrics already have execution results (including empty results and errors)
+    const allMetricsHaveResults = analysis.metrics.every(metric => 
+      metric.executionResults?.yAxisData !== undefined && 
+      metric.executionResults?.lastExecuted !== undefined
+    );
+
+    if (allMetricsHaveResults) {
+      console.log("✅ All KPI metrics already have cached execution results, skipping SQL execution for instant loading");
+      return;
+    }
+
+    console.log("Executing SQL for KPI metrics...");
+    setIsExecutingSQL(true);
+
+    try {
+      const response = await fetch("/api/execute-kpi-sql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId,
+          userId: user.id,
+          kpiAnalysis: analysis,
+          csvData,
+          headers: Object.keys(csvData[0] || {})
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success && result.kpiAnalysis) {
+        console.log("Successfully executed SQL for KPI metrics");
+        setKpiAnalysis(result.kpiAnalysis);
+      } else {
+        console.error("Failed to execute KPI SQL:", result.error);
+      }
+    } catch (error) {
+      console.error("Error executing KPI SQL:", error);
+    } finally {
+      setIsExecutingSQL(false);
+    }
+  };
 
   // Fetch file details and CSV content
   useEffect(() => {
@@ -122,11 +169,19 @@ export default function FileAnalyticsPage() {
 
     const fetchKpiAnalysis = async () => {
       try {
+        console.log("🔍 Fetching KPI analysis for fileId:", fileId);
         const response = await fetch(`/api/get-kpi-analysis?fileId=${fileId}`);
         const data = await response.json();
         
+        console.log("📊 KPI analysis fetch response:", data);
+        
         if (data.success && data.kpiAnalysis) {
+          console.log("✅ KPI analysis loaded successfully:", data.kpiAnalysis);
           setKpiAnalysis(data.kpiAnalysis);
+          // Execute SQL for the loaded KPI analysis
+          executeKPISQL(data.kpiAnalysis);
+        } else {
+          console.log("❌ No KPI analysis found or error:", data.error);
         }
       } catch (error) {
         console.error("Error fetching KPI analysis:", error);
@@ -213,9 +268,7 @@ export default function FileAnalyticsPage() {
         throw new Error(data.error);
       }
       
-      setKpiAnalysis(data);
-      
-      // Store the KPI analysis
+      // Store the KPI analysis first
       const storeResponse = await fetch("/api/store-kpi-analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -228,6 +281,8 @@ export default function FileAnalyticsPage() {
       const storeData = await storeResponse.json();
       
       if (storeData.success) {
+        console.log("✅ KPI analysis stored successfully with ID:", storeData.kpiAnalysisId);
+        setKpiAnalysis(data);
         setHasKpiAnalysis(true);
         // Update file details
         setFileDetails((prev: any) => ({
@@ -235,6 +290,13 @@ export default function FileAnalyticsPage() {
           has_kpi_analysis: true,
           kpi_analysis_id: storeData.kpiAnalysisId
         }));
+        
+        // Execute SQL for the generated KPI analysis AFTER storing
+        console.log("🚀 Executing SQL for stored KPI analysis...");
+        await executeKPISQL(data);
+      } else {
+        console.error("❌ Failed to store KPI analysis:", storeData.error);
+        throw new Error(storeData.error || "Failed to store KPI analysis");
       }
       
     } catch (err: any) {
@@ -438,9 +500,9 @@ export default function FileAnalyticsPage() {
       {/* KPI Analytics View */}
       {showKpiView && (
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
+          {/* <div className="flex items-center justify-between">
             <h2 className="text-2xl font-bold text-gray-900">KPI Analytics</h2>
-          </div>
+          </div> */}
           
           {isGeneratingKPI ? (
             <div className="flex items-center justify-center py-12">
@@ -455,6 +517,16 @@ export default function FileAnalyticsPage() {
                 <h3 className="text-xl font-semibold text-gray-900 mb-4">Analysis Summary</h3>
                 <p className="text-gray-600 text-lg">{kpiAnalysis.summary}</p>
               </div> */}
+
+              {/* SQL Execution Status */}
+              {isExecutingSQL && (
+                <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-3"></div>
+                    <span className="text-blue-800">Executing SQL queries and storing results for instant loading...</span>
+                  </div>
+                </div>
+              )}
 
               {/* KPI Charts Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -471,6 +543,7 @@ export default function FileAnalyticsPage() {
                     category={metric.category}
                     fileId={fileId as string}
                     userId={user?.id}
+                    executionResults={metric.executionResults}
                     showDeleteButton={true}
                     onDelete={() => setDeletingMetricIndex(index)}
                   />

@@ -1,7 +1,6 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { invalidateFileCache } from '@/lib/sql-cache-utils';
 
 export async function POST(request: NextRequest) {
   try {
@@ -84,17 +83,6 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("CSV stored successfully:", { tableName, rowCount: data.length });
-
-    // Invalidate cache for this file since data has been updated
-    if (fileId) {
-      try {
-        await invalidateFileCache(fileId, user.id);
-        console.log("Cache invalidated for file:", fileId);
-      } catch (cacheError) {
-        console.error("Error invalidating cache:", cacheError);
-        // Don't fail the operation if cache invalidation fails
-      }
-    }
 
     return NextResponse.json({
       success: true,

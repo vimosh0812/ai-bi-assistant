@@ -28,6 +28,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Store the KPI analysis in the database
+    console.log("💾 Storing KPI analysis for fileId:", fileId);
+    console.log("📊 Analysis data to store:", JSON.stringify(kpiAnalysis, null, 2));
+    
     const { data, error } = await supabase
       .from("kpi_analyses")
       .insert([

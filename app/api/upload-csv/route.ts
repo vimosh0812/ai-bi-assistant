@@ -2,7 +2,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { parse } from "papaparse"; // Optional, for CSV validation
-import { invalidateFileCache } from '@/lib/sql-cache-utils';
 
 export async function POST(request: NextRequest) {
   try {
@@ -53,15 +52,6 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       return NextResponse.json({ error: "Failed to save file metadata", details: insertError }, { status: 500 });
-    }
-
-    // Invalidate cache for this file since it's new data
-    try {
-      await invalidateFileCache(newFile.id, user.id);
-      console.log("Cache invalidated for new file:", newFile.id);
-    } catch (cacheError) {
-      console.error("Error invalidating cache:", cacheError);
-      // Don't fail the upload if cache invalidation fails
     }
 
     return NextResponse.json({

@@ -19,6 +19,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Get the KPI analysis for the file
+    console.log("🔍 Retrieving KPI analysis for fileId:", fileId, "userId:", user.id);
+    
     const { data, error } = await supabase
       .from("kpi_analyses")
       .select("*")
@@ -27,6 +29,8 @@ export async function GET(request: NextRequest) {
       .order("created_at", { ascending: false })
       .limit(1)
       .single();
+      
+    console.log("📊 Database query result:", { data, error });
 
     if (error) {
       if (error.code === 'PGRST116') {
