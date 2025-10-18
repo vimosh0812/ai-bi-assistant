@@ -355,10 +355,10 @@ export default function FileAnalyticsPage() {
             </div>
           ) : kpiAnalysis ? (
             <>
-              <div className="mb-8">
+              {/* <div className="mb-8">
                 <h3 className="text-xl font-semibold text-gray-900 mb-4">Analysis Summary</h3>
                 <p className="text-gray-600 text-lg">{kpiAnalysis.summary}</p>
-              </div>
+              </div> */}
 
               {/* KPI Charts Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
