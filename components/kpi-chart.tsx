@@ -627,53 +627,56 @@ export function KPIChart({
   return (
     <Card className="w-full">
       <CardHeader>
+        {/* Title and Delete Button Row */}
         <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-lg">{title}</CardTitle>
-            <CardDescription className="mt-1">{description}</CardDescription>
-          </div>
-          <div className="flex gap-2">
-            <Badge variant="outline" className="text-xs">
-              {chartType.toUpperCase()}
+          <CardTitle className="text-lg">{title}</CardTitle>
+          {showDeleteButton && onDelete && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onDelete}
+              className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
+              title="Delete this KPI metric"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+        
+        {/* Description Row */}
+        <CardDescription className="mt-2">{description}</CardDescription>
+        
+        {/* Badges Row */}
+        <div className="flex gap-2 mt-3">
+          <Badge variant="outline" className="text-xs">
+            {chartType.toUpperCase()}
+          </Badge>
+          {category && (
+            <Badge variant="secondary" className="text-xs">
+              {category}
             </Badge>
-            {category && (
-              <Badge variant="secondary" className="text-xs">
-                {category}
-              </Badge>
-            )}
-            {executionResults?.cached && (
-              <Badge variant="outline" className="text-xs bg-green-50 text-green-700">
-                📦 Cached
-              </Badge>
-            )}
-            {executionResults?.lastExecuted && !executionResults?.cached && (
-              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700">
-                ⚡ Pre-loaded
-              </Badge>
-            )}
-            {executionResults?.lastExecuted && (
-              <Badge variant="outline" className="text-xs bg-gray-50 text-gray-600">
-                🚀 Instant Load ({executionResults.executionTime}ms)
-              </Badge>
-            )}
-            {showDeleteButton && onDelete && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onDelete}
-                className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
-                title="Delete this KPI metric"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
+          )}
+          {executionResults?.cached && (
+            <Badge variant="outline" className="text-xs bg-green-50 text-green-700">
+              📦 Cached
+            </Badge>
+          )}
+          {executionResults?.lastExecuted && !executionResults?.cached && (
+            <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700">
+              ⚡ Pre-loaded
+            </Badge>
+          )}
+          {executionResults?.lastExecuted && (
+            <Badge variant="outline" className="text-xs bg-gray-50 text-gray-600">
+              🚀 Instant Load ({executionResults.executionTime}ms)
+            </Badge>
+          )}
         </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
           {/* View Toggle */}
-          <div className="flex items-center justify-between">
+          {/* <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Button
                 variant={!showTableView ? "default" : "outline"}
@@ -697,7 +700,7 @@ export function KPIChart({
             <div className="text-xs text-muted-foreground">
               {showTableView ? "Scroll horizontally to view data" : "Click Table to view data"}
             </div>
-          </div>
+          </div> */}
 
           {/* Chart or Table View */}
           <div className="h-64 w-full overflow-hidden">
