@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import Database from 'better-sqlite3';
+import { getCachedResults, storeCachedResults } from '@/lib/sql-cache-utils';
 
 export async function POST(request: NextRequest) {
   try {
-    const { sqlQuery, data, headers, method = 'auto' } = await request.json();
+    const { sqlQuery, data, headers, method = 'auto', fileId, userId, useCache = true } = await request.json();
     
     if (!sqlQuery || !data || !Array.isArray(data)) {
       return NextResponse.json({ error: "Missing sqlQuery, data, or headers" }, { status: 400 });
@@ -11,6 +12,26 @@ export async function POST(request: NextRequest) {
 
     console.log("Executing unified SQL query:", sqlQuery);
     console.log("Processing", data.length, "rows of data");
+
+    // Check cache first if fileId and userId are provided and caching is enabled
+    if (useCache && fileId && userId) {
+      console.log("Checking cache for query...");
+      const cacheResult = await getCachedResults(fileId, userId, sqlQuery, data, headers);
+      
+      if (cacheResult.found && cacheResult.data) {
+        console.log("Cache hit! Returning cached results");
+        return NextResponse.json({ 
+          success: true, 
+          results: cacheResult.data.results,
+          query: sqlQuery,
+          executionMethod: cacheResult.data.execution_method,
+          executionTime: "0ms (cached)",
+          rowCount: cacheResult.data.row_count,
+          cached: true
+        });
+      }
+      console.log("Cache miss, executing query...");
+    }
 
     // Determine the best execution method
     let executionMethod = determineExecutionMethod(sqlQuery, data.length, method);
@@ -34,13 +55,29 @@ export async function POST(request: NextRequest) {
       
       executionTime = Date.now() - startTime;
       
+      // Store results in cache if fileId and userId are provided
+      if (useCache && fileId && userId) {
+        console.log("Storing results in cache...");
+        await storeCachedResults(
+          fileId, 
+          userId, 
+          sqlQuery, 
+          data, 
+          headers, 
+          results, 
+          executionMethod, 
+          executionTime
+        );
+      }
+      
       return NextResponse.json({ 
         success: true, 
         results,
         query: sqlQuery,
         executionMethod,
         executionTime: `${executionTime}ms`,
-        rowCount: results.length
+        rowCount: results.length,
+        cached: false
       });
 
     } catch (error) {
@@ -53,6 +90,21 @@ export async function POST(request: NextRequest) {
           results = await executeWithSimple(sqlQuery, data, headers);
           executionTime = Date.now() - startTime;
           
+          // Store results in cache if fileId and userId are provided
+          if (useCache && fileId && userId) {
+            console.log("Storing fallback results in cache...");
+            await storeCachedResults(
+              fileId, 
+              userId, 
+              sqlQuery, 
+              data, 
+              headers, 
+              results, 
+              'simple (fallback)', 
+              executionTime
+            );
+          }
+          
           return NextResponse.json({ 
             success: true, 
             results,
@@ -60,7 +112,8 @@ export async function POST(request: NextRequest) {
             executionMethod: 'simple (fallback)',
             executionTime: `${executionTime}ms`,
             rowCount: results.length,
-            warning: 'Advanced method failed, used simple fallback'
+            warning: 'Advanced method failed, used simple fallback',
+            cached: false
           });
         } catch (fallbackError) {
           console.error("Fallback execution also failed:", fallbackError);

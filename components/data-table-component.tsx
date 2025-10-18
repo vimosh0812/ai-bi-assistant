@@ -11,6 +11,8 @@ interface DataTableComponentProps {
   xAxisQuery?: string;
   data: any[];
   headers: string[];
+  fileId?: string;
+  userId?: string;
 }
 
 export function DataTableComponent({
@@ -18,11 +20,14 @@ export function DataTableComponent({
   xAxisQuery,
   data,
   headers,
+  fileId,
+  userId,
 }: DataTableComponentProps) {
   const [tableData, setTableData] = useState<any[]>([]);
   const [xAxisData, setXAxisData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cached, setCached] = useState(false);
 
   useEffect(() => {
     const executeQueries = async () => {
@@ -40,13 +45,17 @@ export function DataTableComponent({
             sqlQuery, 
             data, 
             headers: Object.keys(data[0] || {}),
-            method: 'auto'
+            method: 'auto',
+            fileId,
+            userId,
+            useCache: true
           }),
         });
         const yAxisResult = await yAxisResponse.json();
         
         if (yAxisResult.results) {
           setTableData(yAxisResult.results);
+          setCached(yAxisResult.cached || false);
         }
         
         // Execute X-axis query if provided
@@ -58,7 +67,10 @@ export function DataTableComponent({
               sqlQuery: xAxisQuery, 
               data, 
               headers: Object.keys(data[0] || {}),
-              method: 'auto'
+              method: 'auto',
+              fileId,
+              userId,
+              useCache: true
             }),
           });
           const xAxisResult = await xAxisResponse.json();
@@ -171,6 +183,11 @@ export function DataTableComponent({
         <div className="flex items-center justify-between">
           <h5 className="font-medium text-sm text-gray-700">
             Query Results ({tableData.length} rows)
+            {cached && (
+              <Badge variant="outline" className="ml-2 text-xs">
+                📦 Cached
+              </Badge>
+            )}
           </h5>
           {xAxisData.length > 0 && (
             <Badge variant="secondary">
