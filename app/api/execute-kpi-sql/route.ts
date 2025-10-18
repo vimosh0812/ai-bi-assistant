@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
           yAxisResult = await yAxisResponse.json();
         } catch (fetchError) {
           console.error(`Fetch failed for Y-axis query ${metric.name}:`, fetchError);
-          console.log(`Attempted URL: ${fullUrl}/api/execute-sql-unified`);
+          console.log(`Attempted URL: /api/execute-sql-unified`);
           console.log(`Environment variables - NEXT_PUBLIC_APP_URL: ${process.env.NEXT_PUBLIC_APP_URL}, VERCEL_URL: ${process.env.VERCEL_URL}`);
           
           // Fallback: Execute SQL directly using the simple function
