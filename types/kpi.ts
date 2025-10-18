@@ -58,6 +58,16 @@ export interface KPIMetricAnalysis {
     dataLabels?: boolean;
   };
   category: string;
+  // Execution results - populated when SQL is executed
+  executionResults?: {
+    yAxisData: any[];
+    xAxisData?: any[];
+    executionTime: number;
+    executionMethod: string;
+    cached: boolean;
+    lastExecuted: string;
+    error?: string;
+  };
 }
 
 export interface OpenAIKPIAnalysis {

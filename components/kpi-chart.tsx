@@ -48,6 +48,15 @@ interface KPIChartProps {
   category?: string
   fileId?: string
   userId?: string
+  executionResults?: {
+    yAxisData: any[]
+    xAxisData?: any[]
+    executionTime: number
+    executionMethod: string
+    cached: boolean
+    lastExecuted: string
+    error?: string
+  }
   onDelete?: () => void
   showDeleteButton?: boolean
 }
@@ -63,6 +72,7 @@ export function KPIChart({
   category,
   fileId,
   userId,
+  executionResults,
   onDelete,
   showDeleteButton = false
 }: KPIChartProps) {
@@ -71,71 +81,58 @@ export function KPIChart({
   const [error, setError] = useState<string | null>(null);
   const [showTableView, setShowTableView] = useState(false);
 
-  // Execute SQL queries to get real data
+  // Use stored execution results from JSONB only
   useEffect(() => {
-    const executeQueries = async () => {
+    const processData = async () => {
       if (!data || data.length === 0) return;
       
-      console.log(`KPIChart executing SQL on ${data.length} rows of data`);
       setLoading(true);
       setError(null);
       
       try {
-        // Execute main SQL query for Y-axis data using unified method
-        const yAxisResponse = await fetch("/api/execute-sql-unified", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            sqlQuery, 
-            data, 
-            headers: Object.keys(data[0] || {}),
-            method: 'auto', // Let the system choose the best method
-            fileId,
-            userId,
-            useCache: true
-          }),
-        });
-        
-        const yAxisData = await yAxisResponse.json();
-        console.log("YYYYYY-axis SQL results:", yAxisData.results);
-        
-        // Execute X-axis query for labels
-        let xAxisData = null;
-        if (xAxisQuery) {
-          const xAxisResponse = await fetch("/api/execute-sql-unified", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-              sqlQuery: xAxisQuery, 
-              data, 
-              headers: Object.keys(data[0] || {}),
-              method: 'auto',
-              fileId,
-              userId,
-              useCache: true
-            }),
-          });
+        // Check if we have stored execution results in JSONB
+        if (executionResults?.yAxisData !== undefined && executionResults?.lastExecuted) {
+          console.log(`✅ Using cached execution results for ${title} (executed: ${executionResults.lastExecuted}) - No SQL delay!`);
           
-          xAxisData = await xAxisResponse.json();
+          // Check if there was an execution error
+          if (executionResults.error) {
+            console.log(`Execution error for ${title}:`, executionResults.error);
+            setError(`SQL execution failed: ${executionResults.error}`);
+            return;
+          }
+          
+          // Use stored data directly - no SQL execution needed
+          const yAxisResults = executionResults.yAxisData;
+          const xAxisResults = executionResults.xAxisData || [];
+          
+          // Handle empty results (valid case - SQL returned no data)
+          if (yAxisResults.length === 0) {
+            console.log(`Cached SQL execution returned empty results for ${title} - this is valid`);
+            setError("No data available for this chart - SQL query returned no results");
+            return;
+          }
+          
+          // Generate chart data from stored results
+          const generatedData = generateChartDataFromSQL(yAxisResults, xAxisResults, chartConfig);
+          setChartData(generatedData);
+          
+          if (!generatedData) {
+            setError("No data available for this chart");
+          }
+        } else {
+          console.log(`No cached execution results for ${title} - using fallback data processing`);
+          // Use fallback data processing instead of showing error
+          const generatedData = generateChartDataFromOriginal();
+          setChartData(generatedData);
+          
+          if (!generatedData) {
+            setError("No data available for this chart");
+          }
         }
         
-        // Generate chart data from SQL results
-        console.log("Y-axis SQL results:", yAxisData.results);
-        console.log("X-axis SQL results:", xAxisData?.results);
-        
-            const generatedData = generateChartDataFromSQL(yAxisData.results, xAxisData?.results, chartConfig);
-        console.log("Generated chart data:", generatedData);
-        
-            setChartData(generatedData);
-            
-            // If no data generated, set error state
-            if (!generatedData) {
-              setError("No data available for this chart");
-            }
-        
       } catch (err) {
-        console.error("Error executing SQL queries:", err);
-        setError("Failed to execute SQL queries");
+        console.error("Error processing chart data:", err);
+        setError("Failed to process chart data");
         // Fallback to original data
         setChartData(generateChartDataFromOriginal());
       } finally {
@@ -143,8 +140,8 @@ export function KPIChart({
       }
     };
     
-    executeQueries();
-  }, [sqlQuery, xAxisQuery, data, chartConfig]);
+    processData();
+  }, [executionResults, chartConfig]);
 
   // Generate chart data from SQL execution results
   const generateChartDataFromSQL = (yAxisResults: any[], xAxisResults: any[] | null, config: any) => {
@@ -642,6 +639,21 @@ export function KPIChart({
             {category && (
               <Badge variant="secondary" className="text-xs">
                 {category}
+              </Badge>
+            )}
+            {executionResults?.cached && (
+              <Badge variant="outline" className="text-xs bg-green-50 text-green-700">
+                📦 Cached
+              </Badge>
+            )}
+            {executionResults?.lastExecuted && !executionResults?.cached && (
+              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700">
+                ⚡ Pre-loaded
+              </Badge>
+            )}
+            {executionResults?.lastExecuted && (
+              <Badge variant="outline" className="text-xs bg-gray-50 text-gray-600">
+                🚀 Instant Load ({executionResults.executionTime}ms)
               </Badge>
             )}
             {showDeleteButton && onDelete && (

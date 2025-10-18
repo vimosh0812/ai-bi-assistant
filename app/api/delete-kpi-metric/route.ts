@@ -77,6 +77,8 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
+    // No additional processing needed - just delete from JSONB
+
     return NextResponse.json({
       success: true,
       message: "KPI metric deleted successfully",
