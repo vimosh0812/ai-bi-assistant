@@ -5,7 +5,7 @@ import { Bar, Line, Pie, Doughnut } from "react-chartjs-2"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Copy, Database, ChevronLeft, ChevronRight } from "lucide-react"
+import { Copy, Database, ChevronLeft, ChevronRight, Trash2 } from "lucide-react"
 import { DataTableComponent } from "@/components/data-table-component"
 import { 
   Chart as ChartJS,
@@ -46,6 +46,8 @@ interface KPIChartProps {
   sqlQuery: string
   xAxisQuery?: string
   category?: string
+  onDelete?: () => void
+  showDeleteButton?: boolean
 }
 
 export function KPIChart({ 
@@ -56,7 +58,9 @@ export function KPIChart({
   chartConfig, 
   sqlQuery,
   xAxisQuery,
-  category 
+  category,
+  onDelete,
+  showDeleteButton = false
 }: KPIChartProps) {
   const [chartData, setChartData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -629,6 +633,17 @@ export function KPIChart({
               <Badge variant="secondary" className="text-xs">
                 {category}
               </Badge>
+            )}
+            {showDeleteButton && onDelete && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onDelete}
+                className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
+                title="Delete this KPI metric"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
             )}
           </div>
         </div>

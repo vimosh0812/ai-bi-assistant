@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { DEFAULT_NAMES } from "@/lib/config";
 import { createClient } from "@/lib/supabase/client";
 import TableauViz from "@/components/tableauviz";
-import { ArrowLeft, Edit3, Eye, BarChart3, TrendingUp } from "lucide-react";
+import { ArrowLeft, Edit3, Eye, BarChart3, TrendingUp, Home } from "lucide-react";
 import { OpenAIKPIAnalysis } from "@/types/kpi";
 import { KPIChart } from "@/components/kpi-chart";
+import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 interface PublishResponse {
   success: boolean;
@@ -47,6 +49,9 @@ export default function FileAnalyticsPage() {
   const [isGeneratingKPI, setIsGeneratingKPI] = useState(false);
   const [hasKpiAnalysis, setHasKpiAnalysis] = useState(false);
   const [showKpiView, setShowKpiView] = useState(false);
+  const [folderName, setFolderName] = useState<string>("");
+  const [deletingMetricIndex, setDeletingMetricIndex] = useState<number | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Fetch file details and CSV content
   useEffect(() => {
@@ -60,6 +65,17 @@ export default function FileAnalyticsPage() {
       if (error) return console.error(error);
       setFileDetails(data);
       setHasKpiAnalysis(data.has_kpi_analysis || false);
+
+      // Fetch folder name for breadcrumb
+      const { data: folderData, error: folderError } = await supabase
+        .from("folders")
+        .select("name")
+        .eq("id", folderId)
+        .single();
+
+      if (!folderError && folderData) {
+        setFolderName(folderData.name);
+      }
 
       if (data.connected_to_tableau && data.embed_url) {
         setResponse({
@@ -231,21 +247,99 @@ export default function FileAnalyticsPage() {
     setShowKpiView(!showKpiView);
   };
 
+  const handleDeleteMetric = async (metricIndex: number) => {
+    setIsDeleting(true);
+    setError(null);
+    
+    try {
+      const response = await fetch("/api/delete-kpi-metric", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          fileId: fileDetails.id,
+          metricIndex: metricIndex
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
+      // Update local state by removing the metric
+      if (kpiAnalysis && kpiAnalysis.metrics) {
+        const updatedMetrics = [...kpiAnalysis.metrics];
+        updatedMetrics.splice(metricIndex, 1);
+        
+        setKpiAnalysis({
+          ...kpiAnalysis,
+          metrics: updatedMetrics
+        });
+        
+        // If no metrics left, hide the KPI view
+        if (updatedMetrics.length === 0) {
+          setShowKpiView(false);
+          setHasKpiAnalysis(false);
+        }
+      }
+      
+      setDeletingMetricIndex(null);
+      
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   // Remove the generateEmbedCode function as we'll use the TableauViz component instead
 
   return (
     <div className="container mx-auto p-6">
+      {/* Breadcrumb Navigation */}
+      <div className="mb-6">
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink 
+                href="/dashboard" 
+                className="flex items-center gap-1 hover:text-foreground"
+              >
+                <Home className="h-4 w-4" />
+                Dashboard
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink 
+                href={`/dashboard/${folderId}`}
+                className="hover:text-foreground"
+              >
+                {folderName || "Folder"}
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage className="flex items-center gap-1">
+                <span className="font-medium">{fileDetails?.file_name || "CSV File"}</span>
+              </BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+      </div>
+
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
-          <Button
+          {/* <Button
             variant="outline"
             size="sm"
-            onClick={() => router.push('/dashboard')}
+            onClick={() => router.push(`/dashboard/${folderId}`)}
             className="flex items-center gap-2"
           >
             <ArrowLeft className="h-4 w-4" />
-           
-          </Button>
+            Back to Folder
+          </Button> */}
           <h1 className="text-2xl font-bold">{fileDetails?.file_name || "CSV File"}</h1>
         </div>
         <div className="flex items-center gap-2">
@@ -373,6 +467,8 @@ export default function FileAnalyticsPage() {
                     sqlQuery={metric.sqlQuery}
                     xAxisQuery={metric.xAxisQuery}
                     category={metric.category}
+                    showDeleteButton={true}
+                    onDelete={() => setDeletingMetricIndex(index)}
                   />
                 ))}
               </div>
@@ -415,6 +511,33 @@ export default function FileAnalyticsPage() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deletingMetricIndex !== null} onOpenChange={() => setDeletingMetricIndex(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete KPI Metric</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this KPI metric? This action cannot be undone.
+              {deletingMetricIndex !== null && kpiAnalysis?.metrics[deletingMetricIndex] && (
+                <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
+                  <strong>Metric:</strong> {kpiAnalysis.metrics[deletingMetricIndex].name}
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deletingMetricIndex !== null && handleDeleteMetric(deletingMetricIndex)}
+              disabled={isDeleting}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
