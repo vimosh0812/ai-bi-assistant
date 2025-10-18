@@ -223,7 +223,7 @@ export function KPICard({
         )}
 
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
+          {/* <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-gray-700">SQL Queries</span>
             <Button
               variant="outline"
@@ -233,11 +233,11 @@ export function KPICard({
             >
               {showQueries ? 'Hide' : 'Show'} Queries
             </Button>
-          </div>
+          </div> */}
           
           {showQueries && (
             <div className="space-y-3">
-              <div>
+              {/* <div>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-medium text-gray-600">Main Query (Y-axis)</span>
                   <Button
@@ -255,7 +255,7 @@ export function KPICard({
                     {sqlQuery}
                   </code>
                 </div>
-              </div>
+              </div> */}
               
               {xAxisQuery && (
                 <div>

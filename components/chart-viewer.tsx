@@ -64,6 +64,7 @@ export function ChartViewer({ chartData }: ChartViewerProps) {
         )
 
       case "line":
+        console.log("Line chart data---------:", data);
         return (
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={data}>

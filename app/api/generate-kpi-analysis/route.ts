@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { OpenAIKPIAnalysis } from "@/types/kpi";
 
+export const dynamic = 'force-dynamic';
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Analyze column values to categorize them for better chart generation
@@ -168,10 +170,11 @@ export async function POST(req: Request) {
     
     TIME-SERIES CHART RULES:
     - For DATE columns: Generate LINE charts with time on X-axis
-    - Create separate yearly and monthly analysis (NO QUARTERLY)
+    - Prioritize YEARLY analysis over monthly analysis to avoid redundancy
+    - Only create monthly analysis if it provides significantly different insights
     - Use SQL functions: YEAR(date_column), MONTH(date_column)
     - Group by time periods and aggregate metrics
-    - Focus on months and years only, avoid daily granularity
+    - Focus on years primarily, months only when necessary for detailed trends
     
     PIE CHART RULES:
     - For CATEGORICAL columns (≤10 unique values): Generate PIE or DOUGHNUT charts
@@ -203,10 +206,11 @@ export async function POST(req: Request) {
     8. OPERATIONAL ANALYSIS - If there are operational metrics
     
     TIME-SERIES ANALYSIS REQUIREMENTS:
-    - If DATE columns are found, generate YEARLY and MONTHLY analysis
-    - Create separate metrics for yearly trends and monthly breakdowns
+    - If DATE columns are found, prioritize YEARLY analysis for high-level trends
+    - Only create monthly analysis if it reveals different patterns than yearly
+    - Avoid creating both "Total Sales by Year" and "Total Sales by Month" - choose the most meaningful one
     - Use appropriate date functions in SQL (YEAR(), MONTH(), etc.)
-    - Generate line charts for time-series data (months/years only, not days)
+    - Generate line charts for time-series data (years preferred, months only when necessary)
     
     PIE CHART REQUIREMENTS:
     - For CATEGORICAL columns (≤10 unique values), generate PIE or DOUGHNUT charts
@@ -214,8 +218,13 @@ export async function POST(req: Request) {
     - Examples: Product category distribution, Customer segment breakdown, Region analysis
     - Use meaningful business titles and descriptions
     
-    Generate 5-7 relevant KPIs based on what makes sense for this specific dataset.
+    Generate 6 relevant KPIs based on what makes sense for this specific dataset.
     Prioritize time-series analysis if date columns exist, and pie charts for categorical data.
+    
+    IMPORTANT: Avoid creating duplicate or redundant metrics. For example:
+    - Don't create both "Total Sales by Year" and "Total Sales by Month" - choose the most meaningful one
+    - Don't create multiple metrics that show the same data with different time granularities
+    - Focus on unique insights and different aspects of the data
     
     Return a JSON object with this structure (only include applicable KPIs):
     {
@@ -261,8 +270,9 @@ export async function POST(req: Request) {
     - For yearly analysis: GROUP BY YEAR(date_column), ORDER BY YEAR(date_column)
     - For monthly analysis: GROUP BY YEAR(date_column), MONTH(date_column), ORDER BY YEAR, MONTH
     - Use date functions: YEAR(), MONTH(), DATE_FORMAT()
-    - Create separate metrics for yearly trends and monthly breakdowns
-    - Avoid daily granularity - focus on months and years only
+    - Prefer yearly analysis unless monthly reveals significantly different insights
+    - Avoid creating redundant metrics - choose the most meaningful time granularity
+    - Avoid daily granularity - focus on years primarily, months when necessary
     
     PIE CHART SQL GUIDELINES:
     - For categorical data: SELECT categorical_column, COUNT(*) as count FROM data GROUP BY categorical_column

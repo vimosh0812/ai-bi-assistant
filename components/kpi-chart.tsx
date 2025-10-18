@@ -5,7 +5,8 @@ import { Bar, Line, Pie, Doughnut } from "react-chartjs-2"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Copy, Database } from "lucide-react"
+import { Copy, Database, ChevronLeft, ChevronRight, Trash2 } from "lucide-react"
+import { DataTableComponent } from "@/components/data-table-component"
 import { 
   Chart as ChartJS,
   CategoryScale,
@@ -45,6 +46,8 @@ interface KPIChartProps {
   sqlQuery: string
   xAxisQuery?: string
   category?: string
+  onDelete?: () => void
+  showDeleteButton?: boolean
 }
 
 export function KPIChart({ 
@@ -55,11 +58,14 @@ export function KPIChart({
   chartConfig, 
   sqlQuery,
   xAxisQuery,
-  category 
+  category,
+  onDelete,
+  showDeleteButton = false
 }: KPIChartProps) {
   const [chartData, setChartData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showTableView, setShowTableView] = useState(false);
 
   // Execute SQL queries to get real data
   useEffect(() => {
@@ -71,29 +77,32 @@ export function KPIChart({
       setError(null);
       
       try {
-        // Execute main SQL query for Y-axis data
-        const yAxisResponse = await fetch("/api/execute-sql", {
+        // Execute main SQL query for Y-axis data using unified method
+        const yAxisResponse = await fetch("/api/execute-sql-unified", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ 
             sqlQuery, 
             data, 
-            headers: Object.keys(data[0] || {})
+            headers: Object.keys(data[0] || {}),
+            method: 'auto' // Let the system choose the best method
           }),
         });
         
         const yAxisData = await yAxisResponse.json();
+        console.log("YYYYYY-axis SQL results:", yAxisData.results);
         
         // Execute X-axis query for labels
         let xAxisData = null;
         if (xAxisQuery) {
-          const xAxisResponse = await fetch("/api/execute-sql", {
+          const xAxisResponse = await fetch("/api/execute-sql-unified", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ 
               sqlQuery: xAxisQuery, 
               data, 
-              headers: Object.keys(data[0] || {})
+              headers: Object.keys(data[0] || {}),
+              method: 'auto'
             }),
           });
           
@@ -101,7 +110,12 @@ export function KPIChart({
         }
         
         // Generate chart data from SQL results
+        console.log("Y-axis SQL results:", yAxisData.results);
+        console.log("X-axis SQL results:", xAxisData?.results);
+        
             const generatedData = generateChartDataFromSQL(yAxisData.results, xAxisData?.results, chartConfig);
+        console.log("Generated chart data:", generatedData);
+        
             setChartData(generatedData);
             
             // If no data generated, set error state
@@ -140,41 +154,154 @@ export function KPIChart({
     
     const colors = config.colors || (chartType === 'pie' || chartType === 'donut' ? pieColors : blueishColors);
     
-    let labels: string[] = [];
-    let values: number[] = [];
+    // For Chart.js, we need to create an array of objects where each object represents a data point
+    // Each object should have properties for the X-axis value and Y-axis value
+    
+    let chartData: any[] = [];
     
     if (xAxisResults && xAxisResults.length > 0) {
-      // Use X-axis query results for labels
-      labels = xAxisResults.map((row, index) => {
-        const value = Object.values(row)[0];
-        return typeof value === 'string' ? value.substring(0, 20) : 
-               typeof value === 'number' ? value.toString() : 
-               `Item ${index + 1}`;
-      });
+      // Use X-axis query results for labels and Y-axis results for values
+      const minLength = Math.min(xAxisResults.length, yAxisResults.length);
+      
+      for (let i = 0; i < minLength; i++) {
+        // Get the first column value from X-axis results (usually the label/category)
+        const xValue = Object.values(xAxisResults[i])[0];
+        
+        // Get the first numeric value from Y-axis results (usually the metric value)
+        const yValue = Object.values(yAxisResults[i]).find(val => 
+          typeof val === 'number' || (typeof val === 'string' && !isNaN(Number(val)))
+        );
+        
+        chartData.push({
+          x: typeof xValue === 'string' ? xValue.substring(0, 20) : 
+             typeof xValue === 'number' ? xValue.toString() : 
+             `Item ${i + 1}`,
+          y: yValue ? Number(yValue) : 0
+        });
+      }
     } else {
-      // Generate labels from Y-axis results
-      labels = yAxisResults.map((_, index) => `Item ${index + 1}`);
+      // Generate data points from Y-axis results only
+      // For Y-axis results, we need to extract both the label and value
+      console.log("Processing Y-axis results without X-axis query");
+      console.log("Sample Y-axis row:", yAxisResults[0]);
+      
+      yAxisResults.forEach((row, index) => {
+        const rowEntries = Object.entries(row);
+        
+        console.log(`Processing row ${index}:`, row);
+        console.log(`Row entries:`, rowEntries);
+        
+        // SIMPLIFIED APPROACH: Use column order and explicit logic
+        let xValue = null;
+        let yValue = null;
+        
+        // Strategy 1: Look for specific column names first
+        for (const [key, value] of rowEntries) {
+          const lowerKey = key.toLowerCase();
+          console.log(`  Column: ${key} (${lowerKey}), Value: ${value} (${typeof value})`);
+          
+          if (lowerKey.includes('year') || lowerKey.includes('date') || lowerKey.includes('time')) {
+            xValue = value;
+            console.log(`    -> X-axis (name): ${value}`);
+          } else if (lowerKey.includes('total') || lowerKey.includes('sum') || lowerKey.includes('count') || 
+                     lowerKey.includes('avg') || lowerKey.includes('value') || lowerKey.includes('amount') ||
+                     lowerKey.includes('units') || lowerKey.includes('sold') || lowerKey.includes('revenue')) {
+            yValue = typeof value === 'number' ? value : (typeof value === 'string' && !isNaN(Number(value)) ? Number(value) : null);
+            console.log(`    -> Y-axis (name): ${yValue}`);
+          }
+        }
+        
+        // Strategy 2: If we don't have both, use simple column order
+        if (xValue === null || yValue === null) {
+          console.log(`  Using column order approach`);
+          
+          // Find the first non-numeric string or year-like number for X
+          if (xValue === null) {
+            for (const [key, value] of rowEntries) {
+              if (typeof value === 'string' && isNaN(Number(value))) {
+                xValue = value;
+                console.log(`    -> X-axis (string): ${value}`);
+                break;
+              } else if (typeof value === 'number' && value >= 1900 && value <= 2100) {
+                xValue = value;
+                console.log(`    -> X-axis (year): ${value}`);
+                break;
+              } else if (typeof value === 'string' && !isNaN(Number(value))) {
+                const numValue = Number(value);
+                if (numValue >= 1900 && numValue <= 2100) {
+                  xValue = numValue;
+                  console.log(`    -> X-axis (year string): ${numValue}`);
+                  break;
+                }
+              }
+            }
+          }
+          
+          // Find the first large number for Y (not a year)
+          if (yValue === null) {
+            for (const [key, value] of rowEntries) {
+              if (typeof value === 'number' && (value < 1900 || value > 2100)) {
+                yValue = value;
+                console.log(`    -> Y-axis (number): ${value}`);
+                break;
+              } else if (typeof value === 'string' && !isNaN(Number(value))) {
+                const numValue = Number(value);
+                if (numValue < 1900 || numValue > 2100) {
+                  yValue = numValue;
+                  console.log(`    -> Y-axis (number string): ${numValue}`);
+                  break;
+                }
+              }
+            }
+          }
+        }
+        
+        // Strategy 3: Fallback to column order (first = X, second = Y)
+        if (xValue === null || yValue === null) {
+          console.log(`  Using fallback column order`);
+          if (rowEntries.length >= 2) {
+            if (xValue === null) {
+              xValue = rowEntries[0][1];
+              console.log(`    -> X-axis (first column): ${xValue}`);
+            }
+            if (yValue === null) {
+              const secondValue = rowEntries[1][1];
+              yValue = typeof secondValue === 'number' ? secondValue : 
+                      (typeof secondValue === 'string' && !isNaN(Number(secondValue)) ? Number(secondValue) : secondValue);
+              console.log(`    -> Y-axis (second column): ${yValue}`);
+            }
+          }
+        }
+        
+        // Final validation: Ensure X and Y are different
+        if (xValue !== null && yValue !== null && xValue === yValue) {
+          console.log(`  ERROR: X and Y are the same (${xValue}), this should not happen!`);
+          // Force different values - use index for X if they're the same
+          xValue = `Item_${index + 1}`;
+          console.log(`  Forced X to: ${xValue}`);
+        }
+        
+        console.log(`  Final mapping - X: ${xValue}, Y: ${yValue}`);
+        
+        chartData.push({
+          x: xValue ? String(xValue) : `Item_${index + 1}`,
+          y: yValue ? Number(yValue) : 0
+        });
+      });
     }
     
-    // Extract values from Y-axis results
-    values = yAxisResults.map(row => {
-      // Try to find numeric values in the row
-      const numericValue = Object.values(row).find(val => 
-        typeof val === 'number' || (typeof val === 'string' && !isNaN(Number(val)))
-      );
-      
-      return numericValue ? Number(numericValue) : 0;
-    });
+    // console.log("SQL-generated chart data:", chartData);
+    // console.log("Chart data structure - X values:", chartData.map(item => item.x));
+    // console.log("Chart data structure - Y values:", chartData.map(item => item.y));
+    // console.log("Chart data structure - Full objects:", chartData);
     
-    console.log("SQL-generated labels:", labels);
-    console.log("SQL-generated values:", values);
-    
-    return {
-      labels: labels.slice(0, 10),
+    // Use the standard Chart.js data structure for line charts
+    const finalData = {
+      labels: chartData.map(item => item.x), // X-axis labels (years)
       datasets: [
         {
           label: config.title || title,
-          data: values.slice(0, 10),
+          data: chartData.map(item => item.y), // Y-axis values (total_units_sold)
           backgroundColor: chartType === 'pie' || chartType === 'donut' ? 
             colors : 
             colors[0],
@@ -186,6 +313,13 @@ export function KPIChart({
         },
       ],
     };
+    
+    // console.log("Final Chart.js data structure:", finalData);
+    // console.log("Labels array:", finalData.labels);
+    // console.log("Data points array:", finalData.datasets[0].data);
+    // console.log("Sample data point:", finalData.datasets[0].data[0]);
+    
+    return finalData;
   };
 
   // Fallback to original data processing
@@ -250,6 +384,8 @@ export function KPIChart({
 
   // Use SQL-generated data or fallback
   const finalChartData = chartData || generateChartDataFromOriginal()
+  
+  // console.log("Final chart data for rendering:", finalChartData);
 
   // If no data available, don't render the chart
   if (!finalChartData) {
@@ -392,7 +528,86 @@ export function KPIChart({
         return <Bar data={finalChartData} options={chartOptions as any} />
       case 'line':
       case 'area':
-        return <Line data={finalChartData} options={chartOptions as any} />
+        console.log("Rendering line chart with data:", finalChartData);
+        console.log("Chart options:", chartOptions);
+        console.log("Labels for X-axis:", finalChartData.labels);
+        console.log("Data for Y-axis:", finalChartData.datasets[0].data);
+        
+        const lineOptions = {
+          ...chartOptions,
+          elements: {
+            line: {
+              tension: 0.4, // Smooth curves
+            },
+            point: {
+              radius: 4,
+              hoverRadius: 6,
+            },
+          },
+          plugins: {
+            ...chartOptions.plugins,
+            legend: {
+              ...chartOptions.plugins?.legend,
+              display: true,
+            },
+          },
+          scales: {
+            x: {
+              type: 'category', // Explicitly set as category scale
+              display: true,
+              title: {
+                display: true,
+                text: 'Year',
+                font: {
+                  size: 14,
+                  weight: '600' as const,
+                },
+                color: '#6B7280',
+              },
+              grid: {
+                color: 'rgba(0, 0, 0, 0.05)',
+              },
+              ticks: {
+                color: '#6B7280',
+                font: {
+                  size: 11,
+                },
+              },
+            },
+            y: {
+              type: 'linear', // Explicitly set as linear scale
+              display: true,
+              title: {
+                display: true,
+                text: 'Total Units Sold',
+                font: {
+                  size: 14,
+                  weight: '600' as const,
+                },
+                color: '#6B7280',
+              },
+              beginAtZero: true,
+              grid: {
+                color: 'rgba(0, 0, 0, 0.05)',
+              },
+              ticks: {
+                color: '#6B7280',
+                font: {
+                  size: 11,
+                },
+                callback: function(value: any) {
+                  if (typeof value === 'number') {
+                    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+                    if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
+                    return value.toLocaleString();
+                  }
+                  return value;
+                }
+              },
+            },
+          },
+        };
+        return <Line data={finalChartData} options={lineOptions as any} />
       case 'pie':
         return <Pie data={finalChartData} options={chartOptions as any} />
       case 'donut':
@@ -419,14 +634,65 @@ export function KPIChart({
                 {category}
               </Badge>
             )}
+            {showDeleteButton && onDelete && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onDelete}
+                className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
+                title="Delete this KPI metric"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          {/* Chart */}
-          <div className="h-64 w-full">
-            {renderChart()}
+          {/* View Toggle */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Button
+                variant={!showTableView ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowTableView(false)}
+                className="text-xs"
+              >
+                <Database className="h-3 w-3 mr-1" />
+                Chart
+              </Button>
+              <Button
+                variant={showTableView ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowTableView(true)}
+                className="text-xs"
+              >
+                <ChevronRight className="h-3 w-3 mr-1" />
+                Table
+              </Button>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {showTableView ? "Scroll horizontally to view data" : "Click Table to view data"}
+            </div>
+          </div>
+
+          {/* Chart or Table View */}
+          <div className="h-64 w-full overflow-hidden">
+            {showTableView ? (
+              <div className="h-full overflow-x-auto">
+                <DataTableComponent
+                  sqlQuery={sqlQuery}
+                  xAxisQuery={xAxisQuery}
+                  data={data}
+                  headers={data.length > 0 ? Object.keys(data[0]) : []}
+                />
+              </div>
+            ) : (
+              <div className="h-full">
+                {renderChart()}
+              </div>
+            )}
           </div>
           
           {/* Main SQL Query */}
@@ -436,7 +702,7 @@ export function KPIChart({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => onCopyQuery(sqlQuery)}
+                onClick={() => navigator.clipboard.writeText(sqlQuery)}
                 className="text-xs"
               >
                 <Copy className="h-3 w-3 mr-1" />

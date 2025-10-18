@@ -32,14 +32,15 @@ export function DataTableComponent({
       setError(null);
       
       try {
-        // Execute main SQL query
-        const yAxisResponse = await fetch("/api/execute-sql", {
+        // Execute main SQL query using unified method
+        const yAxisResponse = await fetch("/api/execute-sql-unified", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ 
             sqlQuery, 
             data, 
-            headers: Object.keys(data[0] || {})
+            headers: Object.keys(data[0] || {}),
+            method: 'auto'
           }),
         });
         const yAxisResult = await yAxisResponse.json();
@@ -50,13 +51,14 @@ export function DataTableComponent({
         
         // Execute X-axis query if provided
         if (xAxisQuery) {
-          const xAxisResponse = await fetch("/api/execute-sql", {
+          const xAxisResponse = await fetch("/api/execute-sql-unified", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ 
               sqlQuery: xAxisQuery, 
               data, 
-              headers: Object.keys(data[0] || {})
+              headers: Object.keys(data[0] || {}),
+              method: 'auto'
             }),
           });
           const xAxisResult = await xAxisResponse.json();
@@ -114,7 +116,7 @@ export function DataTableComponent({
   return (
     <div className="space-y-4">
       {/* SQL Queries */}
-      <div className="space-y-3">
+      {/* <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h5 className="font-medium text-sm text-gray-700">SQL Queries</h5>
           <div className="flex gap-2">
@@ -162,7 +164,7 @@ export function DataTableComponent({
             </div>
           )}
         </div>
-      </div>
+      </div> */}
 
       {/* Data Table */}
       <div className="space-y-3">
@@ -178,11 +180,11 @@ export function DataTableComponent({
         </div>
         
         <div className="max-h-96 overflow-auto border rounded-lg">
-          <table className="min-w-full table-auto text-sm">
+          <table className="min-w-full table-auto text-xs">
             <thead className="bg-gray-100 sticky top-0">
               <tr>
                 {columns.map((column) => (
-                  <th key={column} className="px-3 py-2 text-left border font-medium">
+                  <th key={column} className="px-2 py-1 text-left border font-medium whitespace-nowrap">
                     {column}
                   </th>
                 ))}
@@ -192,7 +194,7 @@ export function DataTableComponent({
               {tableData.map((row, idx) => (
                 <tr key={idx} className={idx % 2 === 0 ? "bg-gray-50" : ""}>
                   {columns.map((column) => (
-                    <td key={column} className="px-3 py-2 border">
+                    <td key={column} className="px-2 py-1 border whitespace-nowrap">
                       {row[column] ?? ""}
                     </td>
                   ))}
@@ -204,17 +206,17 @@ export function DataTableComponent({
       </div>
 
       {/* X-axis Data (if available) */}
-      {xAxisData.length > 0 && (
+      {/* {xAxisData.length > 0 && (
         <div className="space-y-3">
           <h5 className="font-medium text-sm text-gray-700">
             X-axis Values ({xAxisData.length} values)
           </h5>
           <div className="max-h-32 overflow-auto border rounded-lg">
-            <table className="min-w-full table-auto text-sm">
+            <table className="min-w-full table-auto text-xs">
               <thead className="bg-gray-100 sticky top-0">
                 <tr>
                   {Object.keys(xAxisData[0] || {}).map((column) => (
-                    <th key={column} className="px-3 py-2 text-left border font-medium">
+                    <th key={column} className="px-2 py-1 text-left border font-medium whitespace-nowrap">
                       {column}
                     </th>
                   ))}
@@ -224,7 +226,7 @@ export function DataTableComponent({
                 {xAxisData.map((row, idx) => (
                   <tr key={idx} className={idx % 2 === 0 ? "bg-gray-50" : ""}>
                     {Object.keys(row).map((column) => (
-                      <td key={column} className="px-3 py-2 border">
+                      <td key={column} className="px-2 py-1 border whitespace-nowrap">
                         {row[column] ?? ""}
                       </td>
                     ))}
@@ -234,7 +236,7 @@ export function DataTableComponent({
             </table>
           </div>
         </div>
-      )}
+      )} */}
     </div>
   );
 }

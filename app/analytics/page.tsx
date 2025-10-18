@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Upload, FileText, BarChart3, Table, Database, TrendingUp, Users, DollarSign, Clock, Activity, Cpu, ArrowLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { processDateColumns } from "@/lib/date-utils"
 import { Pie, Bar, Line, Doughnut } from "react-chartjs-2"
 import Papa from "papaparse"
 import { OpenAIKPIAnalysis } from "@/types/kpi"
@@ -251,6 +252,16 @@ export default function AnalyticsPage() {
         })
         return newRow
       })
+    }
+
+    // Process date columns - detect and split combined date columns
+    const dateProcessingResult = processDateColumns(processedHeaders, processedData)
+    processedHeaders = dateProcessingResult.newHeaders
+    processedData = dateProcessingResult.newData
+    
+    // Log date column processing results
+    if (dateProcessingResult.dateColumnsProcessed.length > 0) {
+      console.log(`✅ Date preprocessing completed: ${dateProcessingResult.dateColumnsProcessed.length} columns split into year/month/day components`)
     }
 
     // Remove low-value columns
