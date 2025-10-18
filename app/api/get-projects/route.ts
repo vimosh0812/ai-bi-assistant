@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { TableauAuth, TableauCredentials } from '@/lib/tableau-auth';
 import axios from 'axios';
 
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
