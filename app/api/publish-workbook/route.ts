@@ -5,6 +5,8 @@ import { TABLEAU_SETTINGS, ALLOWED_EXTENSIONS, DEFAULT_NAMES } from '@/lib/confi
 import { generateWorkbookName } from '@/lib/uuid-utils';
 import fs from 'fs';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     // Parse form data
