@@ -14,19 +14,29 @@ export async function POST(request: NextRequest) {
     console.log(`Executing SQL for ${kpiAnalysis.metrics.length} KPI metrics`);
 
     const supabase = await createClient();
-    const updatedMetrics = [];
+    
+    // First, collect all metrics that need SQL execution
+    const metricsToExecute = kpiAnalysis.metrics.filter((metric: any) => 
+      !metric.executionResults || 
+      !metric.executionResults.yAxisData || 
+      metric.executionResults.yAxisData.length === 0
+    );
 
-    // Execute SQL for each metric
-    for (const metric of kpiAnalysis.metrics) {
+    if (metricsToExecute.length === 0) {
+      console.log("All metrics already have execution results, no SQL execution needed");
+      return NextResponse.json({ 
+        success: true, 
+        kpiAnalysis: kpiAnalysis,
+        message: "All KPI metrics already have cached execution results" 
+      });
+    }
+
+    console.log(`Executing SQL for ${metricsToExecute.length} metrics that need processing`);
+
+    // Execute all SQL operations in parallel using Promise.all
+    const executionPromises = metricsToExecute.map(async (metric: any) => {
       try {
         console.log(`Executing SQL for metric: ${metric.name}`);
-        
-        // Check if we already have execution results
-        if (metric.executionResults && metric.executionResults.yAxisData.length > 0) {
-          console.log(`Metric ${metric.name} already has execution results, skipping`);
-          updatedMetrics.push(metric);
-          continue;
-        }
 
         // Execute Y-axis query (main data) - no cache, execute once and store
         let yAxisResult;
@@ -83,8 +93,8 @@ export async function POST(request: NextRequest) {
         
         if (!yAxisResult.success) {
           console.error(`Failed to execute Y-axis query for ${metric.name}:`, yAxisResult.error);
-          // Add metric with error info
-          updatedMetrics.push({
+          // Return metric with error info
+          return {
             ...metric,
             executionResults: {
               yAxisData: [],
@@ -95,8 +105,7 @@ export async function POST(request: NextRequest) {
               lastExecuted: new Date().toISOString(),
               error: yAxisResult.error
             }
-          });
-          continue;
+          };
         }
 
         // Execute X-axis query if provided - no cache, execute once and store
@@ -143,7 +152,7 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Create updated metric with execution results
+        // Return updated metric with execution results
         const updatedMetric = {
           ...metric,
           executionResults: {
@@ -156,13 +165,13 @@ export async function POST(request: NextRequest) {
           }
         };
 
-        updatedMetrics.push(updatedMetric);
         console.log(`Successfully executed SQL for ${metric.name}: ${yAxisResult.results?.length || 0} rows`);
+        return updatedMetric;
 
       } catch (error) {
         console.error(`Error executing SQL for metric ${metric.name}:`, error);
-        // Add metric with error info
-        updatedMetrics.push({
+        // Return metric with error info
+        return {
           ...metric,
           executionResults: {
             yAxisData: [],
@@ -173,9 +182,20 @@ export async function POST(request: NextRequest) {
             lastExecuted: new Date().toISOString(),
             error: error instanceof Error ? error.message : String(error)
           }
-        });
+        };
       }
-    }
+    });
+
+    // Wait for ALL SQL operations to complete
+    console.log(`Waiting for all ${executionPromises.length} SQL operations to complete...`);
+    const executedMetrics = await Promise.all(executionPromises);
+    console.log(`All SQL operations completed!`);
+
+    // Combine executed metrics with already cached metrics
+    const updatedMetrics = kpiAnalysis.metrics.map((originalMetric: any) => {
+      const executedMetric = executedMetrics.find((executed: any) => executed.name === originalMetric.name);
+      return executedMetric || originalMetric;
+    });
 
     // Update the KPI analysis with execution results
     const updatedKpiAnalysis = {
