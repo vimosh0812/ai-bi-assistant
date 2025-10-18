@@ -29,21 +29,57 @@ export async function POST(request: NextRequest) {
         }
 
         // Execute Y-axis query (main data) - no cache, execute once and store
-        const yAxisResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/execute-sql-unified`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            sqlQuery: metric.sqlQuery, 
-            data: csvData, 
-            headers: headers,
-            method: 'auto',
-            fileId,
-            userId,
-            useCache: false  // Don't use SQL cache, we're storing in JSONB
-          }),
-        });
+        let yAxisResult;
+        try {
+          // Try internal API call first
+          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || 'http://localhost:3000';
+          const fullUrl = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`;
+          const yAxisResponse = await fetch(`${fullUrl}/api/execute-sql-unified`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+              sqlQuery: metric.sqlQuery, 
+              data: csvData, 
+              headers: headers,
+              method: 'auto',
+              fileId,
+              userId,
+              useCache: false  // Don't use SQL cache, we're storing in JSONB
+            }),
+          });
 
-        const yAxisResult = await yAxisResponse.json();
+          if (!yAxisResponse.ok) {
+            throw new Error(`HTTP ${yAxisResponse.status}: ${yAxisResponse.statusText}`);
+          }
+
+          yAxisResult = await yAxisResponse.json();
+        } catch (fetchError) {
+          console.error(`Fetch failed for Y-axis query ${metric.name}:`, fetchError);
+          console.log(`Attempted URL: ${fullUrl}/api/execute-sql-unified`);
+          console.log(`Environment variables - NEXT_PUBLIC_APP_URL: ${process.env.NEXT_PUBLIC_APP_URL}, VERCEL_URL: ${process.env.VERCEL_URL}`);
+          
+          // Fallback: Execute SQL directly using the simple function
+          try {
+            const { executeSimpleSQL } = await import('@/lib/sql-utils');
+            
+            console.log(`Using direct simple execution for ${metric.name}`);
+            
+            const results = executeSimpleSQL(metric.sqlQuery, csvData, headers);
+            
+            yAxisResult = {
+              success: true,
+              results: results,
+              executionMethod: 'simple (fallback)',
+              executionTime: '0ms'
+            };
+          } catch (directError) {
+            console.error(`Direct execution also failed for ${metric.name}:`, directError);
+            yAxisResult = {
+              success: false,
+              error: `Fetch failed: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}. Direct execution failed: ${directError instanceof Error ? directError.message : String(directError)}`
+            };
+          }
+        }
         
         if (!yAxisResult.success) {
           console.error(`Failed to execute Y-axis query for ${metric.name}:`, yAxisResult.error);
@@ -66,23 +102,44 @@ export async function POST(request: NextRequest) {
         // Execute X-axis query if provided - no cache, execute once and store
         let xAxisData = [];
         if (metric.xAxisQuery) {
-          const xAxisResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/execute-sql-unified`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-              sqlQuery: metric.xAxisQuery, 
-              data: csvData, 
-              headers: headers,
-              method: 'auto',
-              fileId,
-              userId,
-              useCache: false  // Don't use SQL cache, we're storing in JSONB
-            }),
-          });
+          try {
+            const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || 'http://localhost:3000';
+            const fullUrl = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`;
+            const xAxisResponse = await fetch(`${fullUrl}/api/execute-sql-unified`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ 
+                sqlQuery: metric.xAxisQuery, 
+                data: csvData, 
+                headers: headers,
+                method: 'auto',
+                fileId,
+                userId,
+                useCache: false  // Don't use SQL cache, we're storing in JSONB
+              }),
+            });
 
-          const xAxisResult = await xAxisResponse.json();
-          if (xAxisResult.success) {
-            xAxisData = xAxisResult.results || [];
+            if (!xAxisResponse.ok) {
+              throw new Error(`HTTP ${xAxisResponse.status}: ${xAxisResponse.statusText}`);
+            }
+
+            const xAxisResult = await xAxisResponse.json();
+            if (xAxisResult.success) {
+              xAxisData = xAxisResult.results || [];
+            }
+          } catch (fetchError) {
+            console.error(`Fetch failed for X-axis query ${metric.name}:`, fetchError);
+            
+            // Fallback: Execute SQL directly
+            try {
+              const { executeSimpleSQL } = await import('@/lib/sql-utils');
+              
+              const results = executeSimpleSQL(metric.xAxisQuery, csvData, headers);
+              xAxisData = results || [];
+            } catch (directError) {
+              console.error(`Direct X-axis execution also failed for ${metric.name}:`, directError);
+              xAxisData = [];
+            }
           }
         }
 
