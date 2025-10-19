@@ -28,7 +28,7 @@ services:
       - key: TABLEAU_SERVER_URL
         sync: false
       - key: TABLEAU_API_VERSION
-        value: "3.22"
+        value: "3.6"
       - key: TABLEAU_SITE_ID
         sync: false
       - key: TABLEAU_CONTENT_URL
