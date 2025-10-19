@@ -3,6 +3,9 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { parse } from "papaparse"; // Optional, for CSV validation
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
+
 export async function POST(request: NextRequest) {
   try {
     const { fileName, description, csvText, folderId, aiSummary } = await request.json();
