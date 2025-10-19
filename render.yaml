@@ -1,0 +1,51 @@
+services:
+  - type: web
+    name: ai-bi-platform
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Supabase Configuration
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # AI/OpenAI Configuration
+      - key: OPENAI_API_KEY
+        sync: false
+      # Payment Processing
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      # File Storage
+      - key: VERCEL_BLOB_READ_WRITE_TOKEN
+        sync: false
+      # Tableau Server Configuration
+      - key: TABLEAU_SERVER_URL
+        sync: false
+      - key: TABLEAU_API_VERSION
+        value: "3.22"
+      - key: TABLEAU_SITE_ID
+        sync: false
+      - key: TABLEAU_CONTENT_URL
+        sync: false
+      - key: TABLEAU_PERSONAL_ACCESS_TOKEN
+        sync: false
+      - key: TABLEAU_PERSONAL_ACCESS_TOKEN_NAME
+        sync: false
+      - key: TABLEAU_PROJECT_ID
+        sync: false
+      # CSV to Hyper Conversion Service
+      - key: CSV_HYPER_SERVICE_URL
+        sync: false
+      - key: NEXT_PUBLIC_CSV_HYPER_SERVICE_URL
+        sync: false
+      # File Upload Limits
+      - key: MAX_FILE_SIZE_MB
+        value: "64"
+    healthCheckPath: /
+    autoDeploy: true
