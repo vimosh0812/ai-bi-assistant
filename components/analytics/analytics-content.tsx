@@ -462,13 +462,15 @@ export default function FileAnalyticsPage() {
                     title={metric.name}
                     description={metric.description}
                     chartType={metric.chartType as any}
-                    data={csvData}
+                    data={csvData as any}
                     chartConfig={metric.chartConfig}
                     sqlQuery={metric.sqlQuery}
                     xAxisQuery={metric.xAxisQuery}
                     category={metric.category}
                     showDeleteButton={true}
                     onDelete={() => setDeletingMetricIndex(index)}
+                    kpiAnalysisId={fileDetails?.kpi_analysis_id}
+                    metricIndex={index}
                   />
                 ))}
               </div>

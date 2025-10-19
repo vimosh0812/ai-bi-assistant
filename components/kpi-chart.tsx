@@ -48,6 +48,8 @@ interface KPIChartProps {
   category?: string
   onDelete?: () => void
   showDeleteButton?: boolean
+  kpiAnalysisId?: string
+  metricIndex?: number
 }
 
 export function KPIChart({ 
@@ -60,81 +62,153 @@ export function KPIChart({
   xAxisQuery,
   category,
   onDelete,
-  showDeleteButton = false
+  showDeleteButton = false,
+  kpiAnalysisId,
+  metricIndex
 }: KPIChartProps) {
   const [chartData, setChartData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showTableView, setShowTableView] = useState(false);
+  const [dataSource, setDataSource] = useState<'stored' | 'live' | null>(null);
+  const [tableData, setTableData] = useState<any[]>([]);
 
-  // Execute SQL queries to get real data
+  // Load chart data from stored execution results (primary method)
   useEffect(() => {
-    const executeQueries = async () => {
-      if (!data || data.length === 0) return;
+    const loadChartData = async () => {
+      console.log('Loading chart data for:', { title, kpiAnalysisId, metricIndex, dataSource });
       
-      console.log(`KPIChart executing SQL on ${data.length} rows of data`);
+      // If we have stored results, we don't need the original data
+      if (kpiAnalysisId && metricIndex !== undefined) {
+        console.log(`🎯 Loading stored execution results for KPI ${metricIndex} (${title})`);
+        
+        const response = await fetch(`/api/get-kpi-execution-results?kpiAnalysisId=${kpiAnalysisId}&metricIndex=${metricIndex}`);
+        const result = await response.json();
+        
+          if (result.success && result.results.length > 0) {
+            const executionResult = result.results[0];
+            console.log(`✅ Using stored execution results for ${title}`);
+            console.log(`📊 Y-Axis Results:`, executionResult.y_axis_results?.slice(0, 3));
+            console.log(`📊 X-Axis Results:`, executionResult.x_axis_results?.slice(0, 3));
+            console.log(`📊 Execution Success:`, executionResult.execution_success);
+            
+            if (executionResult.execution_success && executionResult.y_axis_results && executionResult.y_axis_results.length > 0) {
+              setChartData(generateChartDataFromSQL(executionResult.y_axis_results, executionResult.x_axis_results, chartConfig));
+              setTableData(executionResult.y_axis_results || []);
+              setDataSource('stored');
+              setLoading(false);
+              return;
+            } else {
+              console.warn(`⚠️ Stored execution failed or no data for ${title}, falling back to live execution`);
+            }
+          } else {
+            console.log(`📭 No stored results found for ${title}, falling back to live execution`);
+          }
+      }
+      
+      // Fallback to live execution - check if we have data
+      if (!data || !Array.isArray(data) || data.length === 0) {
+        console.log(`📭 No data available for ${title}`);
+        setLoading(false);
+        return;
+      }
+      
+      console.log(`KPIChart loading data for: ${title}`);
       setLoading(true);
       setError(null);
       
       try {
-        // Execute main SQL query for Y-axis data using unified method
-        const yAxisResponse = await fetch("/api/execute-sql-unified", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            sqlQuery, 
-            data, 
-            headers: Object.keys(data[0] || {}),
-            method: 'auto' // Let the system choose the best method
-          }),
-        });
+        // Fallback to live execution
+        console.log(`Executing SQL queries live for: ${title}`);
         
-        const yAxisData = await yAxisResponse.json();
-        console.log("YYYYYY-axis SQL results:", yAxisData.results);
+        // Get fileId from the data object
+        const fileId = (data as any)?.fileId;
         
-        // Execute X-axis query for labels
-        let xAxisData = null;
-        if (xAxisQuery) {
-          const xAxisResponse = await fetch("/api/execute-sql-unified", {
+        if (!fileId) {
+          // Fallback to unified method if no fileId available
+          console.log("No fileId available, falling back to unified method");
+          const yAxisResponse = await fetch("/api/execute-sql-unified", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ 
-              sqlQuery: xAxisQuery, 
+              sqlQuery, 
               data, 
               headers: Object.keys(data[0] || {}),
               method: 'auto'
             }),
           });
           
-          xAxisData = await xAxisResponse.json();
+          const yAxisData = await yAxisResponse.json();
+          console.log("Y-axis SQL results (unified):", yAxisData.results);
+          
+          // Execute X-axis query for labels
+          let xAxisData = null;
+          if (xAxisQuery) {
+            const xAxisResponse = await fetch("/api/execute-sql-unified", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ 
+                sqlQuery: xAxisQuery, 
+                data, 
+                headers: Object.keys(data[0] || {}),
+                method: 'auto'
+              }),
+            });
+            
+            xAxisData = await xAxisResponse.json();
+          }
+          
+          // Process the results
+          if (yAxisData.success) {
+            setChartData(generateChartDataFromSQL(yAxisData.results, xAxisData?.results, chartConfig));
+            setTableData(yAxisData.results || []);
+            setDataSource('live');
+          } else {
+            setError(yAxisData.error || "Failed to execute SQL query");
+          }
+          return;
+        }
+
+        // Use temporary table method
+        const yAxisResponse = await fetch("/api/execute-sql-temp-table", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            sqlQuery, 
+            fileId,
+            xAxisQuery
+          }),
+        });
+        
+        const yAxisData = await yAxisResponse.json();
+        console.log("Y-axis SQL results (temp table):", yAxisData.results);
+        
+        // Process the results
+        if (yAxisData.success) {
+          setChartData(generateChartDataFromSQL(yAxisData.results, yAxisData.xAxisResults, chartConfig));
+          setTableData(yAxisData.results || []);
+          setDataSource('live');
+        } else {
+          setError(yAxisData.error || "Failed to execute SQL query");
         }
         
-        // Generate chart data from SQL results
-        console.log("Y-axis SQL results:", yAxisData.results);
-        console.log("X-axis SQL results:", xAxisData?.results);
-        
-            const generatedData = generateChartDataFromSQL(yAxisData.results, xAxisData?.results, chartConfig);
-        console.log("Generated chart data:", generatedData);
-        
-            setChartData(generatedData);
-            
-            // If no data generated, set error state
-            if (!generatedData) {
-              setError("No data available for this chart");
-            }
-        
       } catch (err) {
-        console.error("Error executing SQL queries:", err);
-        setError("Failed to execute SQL queries");
+        console.error("Error loading chart data:", err);
+        setError("Failed to load chart data");
         // Fallback to original data
-        setChartData(generateChartDataFromOriginal());
+        const fallbackData = generateChartDataFromOriginal();
+        setChartData(fallbackData);
+        // Set table data from original data if available
+        if (data && Array.isArray(data) && data.length > 0) {
+          setTableData(data);
+        }
       } finally {
         setLoading(false);
       }
     };
     
-    executeQueries();
-  }, [sqlQuery, xAxisQuery, data, chartConfig]);
+    loadChartData();
+  }, [sqlQuery, xAxisQuery, data, chartConfig, kpiAnalysisId, metricIndex, title]);
 
   // Generate chart data from SQL execution results
   const generateChartDataFromSQL = (yAxisResults: any[], xAxisResults: any[] | null, config: any) => {
@@ -324,7 +398,7 @@ export function KPIChart({
 
   // Fallback to original data processing
   const generateChartDataFromOriginal = () => {
-    if (!data || data.length === 0) {
+    if (!data || !Array.isArray(data) || data.length === 0) {
       const blueishColors = [
         '#3B82F6', '#1D4ED8', '#2563EB', '#1E40AF', '#1E3A8A', 
         '#60A5FA', '#93C5FD', '#DBEAFE', '#BFDBFE', '#EFF6FF'
@@ -355,8 +429,9 @@ export function KPIChart({
     const colors = chartConfig.colors || (chartType === 'pie' || chartType === 'donut' ? pieColors : blueishColors)
     
     // Simple fallback: use first 10 rows
-    const labels = data.slice(0, 10).map((_, index) => `Item ${index + 1}`)
-    const values = data.slice(0, 10).map((item, index) => {
+    const safeData = Array.isArray(data) ? data : [];
+    const labels = safeData.slice(0, 10).map((_, index) => `Item ${index + 1}`)
+    const values = safeData.slice(0, 10).map((item, index) => {
       const numericValue = Object.values(item).find(val => 
         typeof val === 'number' || (typeof val === 'string' && !isNaN(Number(val)))
       )
@@ -384,6 +459,9 @@ export function KPIChart({
 
   // Use SQL-generated data or fallback
   const finalChartData = chartData || generateChartDataFromOriginal()
+  
+  // Ensure table data is available
+  const finalTableData = tableData.length > 0 ? tableData : (data && Array.isArray(data) ? data : [])
   
   // console.log("Final chart data for rendering:", finalChartData);
 
@@ -510,7 +588,30 @@ export function KPIChart({
     if (loading) {
       return (
         <div className="h-64 flex items-center justify-center">
-          <div className="text-sm text-muted-foreground">Loading chart data...</div>
+          <div className="w-full space-y-4">
+            {/* Skeleton for chart title */}
+            <div className="h-4 bg-gray-200 rounded w-1/3 mx-auto"></div>
+            
+            {/* Skeleton for chart area */}
+            <div className="h-48 bg-gray-100 rounded-lg flex items-end justify-center space-x-2 p-4">
+              {/* Skeleton bars for bar chart */}
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div 
+                  key={i} 
+                  className="bg-gray-300 rounded-t"
+                  style={{ 
+                    height: `${Math.random() * 60 + 20}%`, 
+                    width: '12%' 
+                  }}
+                ></div>
+              ))}
+            </div>
+            
+            {/* Skeleton for loading text */}
+            <div className="text-center">
+              <div className="h-3 bg-gray-200 rounded w-1/4 mx-auto"></div>
+            </div>
+          </div>
         </div>
       )
     }
@@ -622,7 +723,18 @@ export function KPIChart({
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-lg">{title}</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-lg">{title}</CardTitle>
+              {dataSource && (
+                <span className={`px-2 py-1 text-xs rounded-full ${
+                  dataSource === 'stored' 
+                    ? 'bg-green-100 text-green-800' 
+                    : 'bg-blue-100 text-blue-800'
+                }`}>
+                  {dataSource === 'stored' ? '📊 Stored' : '⚡ Live'}
+                </span>
+              )}
+            </div>
             <CardDescription className="mt-1">{description}</CardDescription>
           </div>
           <div className="flex gap-2">
@@ -650,7 +762,7 @@ export function KPIChart({
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          {/* View Toggle */}
+          {/* View Toggle - Show for all charts */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Button
@@ -658,6 +770,7 @@ export function KPIChart({
                 size="sm"
                 onClick={() => setShowTableView(false)}
                 className="text-xs"
+                disabled={loading}
               >
                 <Database className="h-3 w-3 mr-1" />
                 Chart
@@ -665,15 +778,32 @@ export function KPIChart({
               <Button
                 variant={showTableView ? "default" : "outline"}
                 size="sm"
-                onClick={() => setShowTableView(true)}
+                onClick={() => {
+                  console.log('Table button clicked:', { 
+                    showTableView, 
+                    tableData: tableData.length, 
+                    dataSource, 
+                    loading 
+                  });
+                  setShowTableView(true);
+                }}
                 className="text-xs"
+                disabled={loading}
               >
                 <ChevronRight className="h-3 w-3 mr-1" />
                 Table
               </Button>
             </div>
             <div className="text-xs text-muted-foreground">
-              {showTableView ? "Scroll horizontally to view data" : "Click Table to view data"}
+              {loading ? (
+                <div className="h-3 bg-gray-200 rounded w-32"></div>
+              ) : showTableView ? (
+                dataSource === 'stored' 
+                  ? `${finalTableData.length} rows of execution results`
+                  : `${finalTableData.length} rows of data`
+              ) : (
+                "Click Table to view data"
+              )}
             </div>
           </div>
 
@@ -681,12 +811,68 @@ export function KPIChart({
           <div className="h-64 w-full overflow-hidden">
             {showTableView ? (
               <div className="h-full overflow-x-auto">
-                <DataTableComponent
-                  sqlQuery={sqlQuery}
-                  xAxisQuery={xAxisQuery}
-                  data={data}
-                  headers={data.length > 0 ? Object.keys(data[0]) : []}
-                />
+                {/* Debug info */}
+                {process.env.NODE_ENV === 'development' && (
+                  <div className="text-xs text-gray-500 mb-2">
+                    Debug: dataSource={dataSource}, tableData.length={tableData.length}, loading={loading.toString()}
+                  </div>
+                )}
+                {loading ? (
+                  <div className="min-w-full">
+                    {/* Skeleton table */}
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          {Array.from({ length: 4 }).map((_, index) => (
+                            <th key={index} className="px-3 py-2 text-left border-b">
+                              <div className="h-4 bg-gray-200 rounded w-20"></div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Array.from({ length: 5 }).map((_, rowIndex) => (
+                          <tr key={rowIndex}>
+                            {Array.from({ length: 4 }).map((_, cellIndex) => (
+                              <td key={cellIndex} className="px-3 py-2 border-b">
+                                <div className="h-4 bg-gray-100 rounded w-16"></div>
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : finalTableData.length > 0 ? (
+                  <div className="min-w-full">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          {Object.keys(finalTableData[0]).map((key, index) => (
+                            <th key={index} className="px-3 py-2 text-left font-medium text-gray-700 border-b">
+                              {key}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {finalTableData.map((row, rowIndex) => (
+                          <tr key={rowIndex} className="hover:bg-gray-50">
+                            {Object.values(row).map((value, cellIndex) => (
+                              <td key={cellIndex} className="px-3 py-2 border-b text-gray-900">
+                                {typeof value === 'number' ? value.toLocaleString() : String(value)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-gray-500">
+                    No data available
+                  </div>
+                )}
               </div>
             ) : (
               <div className="h-full">

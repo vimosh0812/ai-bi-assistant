@@ -127,17 +127,24 @@ export async function POST(req: Request) {
 
     const preview = sampleRows.map((row, i) => `${i + 1}. ${JSON.stringify(row)}`).join("\n");
 
+    // Sanitize headers to match database column names (lowercase with underscores)
+    const sanitizedHeaders = headers.map((header: string) => 
+      header.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+    );
+    
     const prompt = `You are an expert data analyst and KPI specialist. 
     Analyze the provided dataset and generate comprehensive KPI analysis.
     
     Dataset Information:
     Headers: ${headers.join(", ")}
+    Database Column Names: ${sanitizedHeaders.join(", ")}
     Sample Data:
     ${preview}
     
     COLUMN ANALYSIS (Critical for chart generation):
-    ${Object.entries(columnAnalysis).map(([column, analysis]) => {
-      let analysisText = `- ${column}: ${analysis.type.toUpperCase()}`;
+    ${Object.entries(columnAnalysis).map(([column, analysis], index) => {
+      const sanitizedColumn = sanitizedHeaders[index];
+      let analysisText = `- ${column} (${sanitizedColumn}): ${analysis.type.toUpperCase()}`;
       analysisText += ` (${analysis.uniqueValues} unique values)`;
       
       if (analysis.type === 'categorical') {
@@ -147,6 +154,7 @@ export async function POST(req: Request) {
         if (analysis.valueRange) {
           analysisText += `. Range: ${analysis.valueRange.min} to ${analysis.valueRange.max}`;
         }
+        analysisText += ` - REQUIRES CAST(${sanitizedColumn} AS NUMERIC) for calculations`;
       } else if (analysis.type === 'many_values') {
         analysisText += ` - TOO MANY UNIQUE VALUES (${analysis.uniqueValues}) - DO NOT USE for X-axis labels`;
       } else if (analysis.type === 'mixed') {
@@ -154,11 +162,28 @@ export async function POST(req: Request) {
       }
       
       if (analysis.isDate) {
-        analysisText += ` - DATE column, good for time-series analysis`;
+        analysisText += ` - DATE column, good for time-series analysis - Use preprocessed Date_year, Date_month, Date_day columns with CAST(column AS NUMERIC)`;
       }
       
       return analysisText;
     }).join('\n')}
+    
+    ⚠️ CRITICAL DATA TYPE WARNING:
+    All data in the database is stored as TEXT, so you MUST use CAST() functions for any numeric operations:
+    - Numeric columns need CAST(column_name AS NUMERIC) for calculations
+    - Date columns are preprocessed as separate columns: Date_year, Date_month, Date_day (cast as NUMERIC)
+    - Always cast before performing SUM(), AVG(), MAX(), MIN(), or any arithmetic operations
+    - Examples: SUM(CAST(Price AS NUMERIC)), AVG(CAST(Revenue AS NUMERIC)), CAST(Date_year AS NUMERIC)
+    - Date examples: GROUP BY CAST(Date_year AS NUMERIC), ORDER BY CAST(Date_year AS NUMERIC)
+    - 🚨 REMINDER: Every time you write a numeric operation, ask yourself "Did I cast it to NUMERIC?"
+    
+    🗄️ DATABASE SYSTEM: You are generating PostgreSQL SQL queries - use PostgreSQL syntax and functions.
+    
+    📝 COLUMN NAME MAPPING:
+    - Use the "Database Column Names" (sanitized versions) in your SQL queries
+    - Original headers are for reference only - use sanitized names in SQL
+    - Example: "Payment Method" becomes "payment_method" in SQL queries
+    - Example: "Total Revenue" becomes "total_revenue" in SQL queries
     
     CHART GENERATION RULES:
     - Use CATEGORICAL columns (≤10 unique values) for X-axis labels ONLY
@@ -196,6 +221,12 @@ export async function POST(req: Request) {
     4. Chart configuration with proper xAxis and yAxis column names
     5. X-axis query - SELECT DISTINCT [categorical_column] FROM data ORDER BY [categorical_column]
     
+    IMPORTANT: All numeric calculations MUST use CAST() functions since data is stored as TEXT:
+    - Use SUM(CAST(Price AS NUMERIC)) instead of SUM(Price)
+    - Use AVG(CAST(Revenue AS NUMERIC)) instead of AVG(Revenue)
+    - Use CAST(Date_year AS NUMERIC), CAST(Date_month AS NUMERIC), CAST(Date_day AS NUMERIC) for date operations
+    - REMEMBER: Always cast numeric columns to NUMERIC type for any mathematical operations
+    
     POTENTIAL KPIs (only include if applicable to the data):
     1. CHURN ANALYSIS - Only if there are customer/user identifiers and time-based data
     2. ROI ANALYSIS - Only if there are financial columns (revenue, cost, profit, etc.)
@@ -228,12 +259,15 @@ export async function POST(req: Request) {
     - Focus on unique insights and different aspects of the data
     
     Return a JSON object with this structure (only include applicable KPIs):
+    REMEMBER: Always use CAST(column AS NUMERIC) for any numeric operations!
+    REMEMBER: Generate PostgreSQL SQL queries - use PostgreSQL syntax and functions!
+    REMEMBER: Use sanitized column names (lowercase with underscores) in SQL queries!
     {
       "metrics": [
         {
           "name": "Metric Name",
-          "sqlQuery": "SELECT [categorical_column], SUM/COUNT/AVG([continuous_column]) as metric_value FROM data GROUP BY [categorical_column] ORDER BY metric_value DESC",
-          "xAxisQuery": "SELECT DISTINCT [categorical_column] FROM data ORDER BY [categorical_column]",
+          "sqlQuery": "SELECT [sanitized_categorical_column], SUM(CAST([sanitized_continuous_column] AS NUMERIC)) as metric_value FROM data GROUP BY [sanitized_categorical_column] ORDER BY metric_value DESC",
+          "xAxisQuery": "SELECT DISTINCT [sanitized_categorical_column] FROM data ORDER BY [sanitized_categorical_column]",
           "description": "Clear description of what this metric measures",
           "chartType": "bar|line|pie|area|donut|scatter",
           "chartConfig": {
@@ -250,27 +284,47 @@ export async function POST(req: Request) {
       "summary": "Overall summary of the KPI analysis and insights based on the data structure"
     }
     
-    Important SQL Guidelines:
-    - Use proper column names from the headers exactly as they appear
+    Important SQL Guidelines (PostgreSQL):
+    - Use sanitized column names from "Database Column Names" in your SQL queries
     - For X-axis queries: Use ONLY categorical columns (≤10 unique values) with SELECT DISTINCT
     - NEVER use columns with >10 unique values for X-axis labels
     - For Y-axis queries: Use GROUP BY with categorical columns and aggregate continuous columns
     - If no categorical columns exist, create summary queries without GROUP BY
-    - Use appropriate aggregate functions:
+    - Use appropriate PostgreSQL aggregate functions:
       * COUNT(*) for counting records
       * SUM() for totaling numeric values  
       * AVG() for averaging numeric values
       * MAX()/MIN() for ranges
     - Always include ORDER BY for consistent results
-    - Use proper column names in chartConfig.xAxis and chartConfig.yAxis
+    - Use sanitized column names in chartConfig.xAxis and chartConfig.yAxis
     - Make queries executable against the actual data structure
     - Include proper aliases for calculated fields (e.g., "as total_revenue")
     - For time-series: use date columns in ORDER BY for chronological order
+    - Use PostgreSQL syntax: CAST(column AS NUMERIC), column::NUMERIC, etc.
+    - CRITICAL: Always use sanitized column names (lowercase with underscores) in SQL queries
     
-    TIME-SERIES SQL GUIDELINES:
-    - For yearly analysis: GROUP BY YEAR(date_column), ORDER BY YEAR(date_column)
-    - For monthly analysis: GROUP BY YEAR(date_column), MONTH(date_column), ORDER BY YEAR, MONTH
-    - Use date functions: YEAR(), MONTH(), DATE_FORMAT()
+    CRITICAL: All data is stored as TEXT in the database, so you MUST cast numeric columns:
+    - For calculations: CAST(column_name AS NUMERIC) or column_name::NUMERIC
+    - For aggregations: SUM(CAST(column_name AS NUMERIC)) or SUM(column_name::NUMERIC)
+    - For comparisons: WHERE CAST(column_name AS NUMERIC) > 100
+    - For date operations: Use preprocessed date columns (Date_year, Date_month, Date_day) as NUMERIC
+    - ⚠️ ALWAYS REMEMBER: When you see numeric values, immediately think CAST(column AS NUMERIC)
+    - Examples:
+      * SUM(CAST(Price AS NUMERIC)) instead of SUM(Price)
+      * AVG(CAST(Revenue AS NUMERIC)) instead of AVG(Revenue)
+      * WHERE CAST(Age AS NUMERIC) > 18 instead of WHERE Age > 18
+      * SUM(CAST(Price AS NUMERIC) * CAST(Quantity AS NUMERIC)) for calculations
+      * AVG(CAST(Salary AS NUMERIC)) for averages
+      * MAX(CAST(Revenue AS NUMERIC)) for maximum values
+      * MIN(CAST(Cost AS NUMERIC)) for minimum values
+      * For dates: CAST(Date_year AS NUMERIC), CAST(Date_month AS NUMERIC), CAST(Date_day AS NUMERIC)
+    
+    TIME-SERIES SQL GUIDELINES (PostgreSQL with preprocessed date columns):
+    - For yearly analysis: GROUP BY CAST(Date_year AS NUMERIC), ORDER BY CAST(Date_year AS NUMERIC)
+    - For monthly analysis: GROUP BY CAST(Date_year AS NUMERIC), CAST(Date_month AS NUMERIC), ORDER BY CAST(Date_year AS NUMERIC), CAST(Date_month AS NUMERIC)
+    - For daily analysis: GROUP BY CAST(Date_year AS NUMERIC), CAST(Date_month AS NUMERIC), CAST(Date_day AS NUMERIC)
+    - Use preprocessed columns: Date_year, Date_month, Date_day (all stored as TEXT, cast to NUMERIC)
+    - Use PostgreSQL date functions when needed: EXTRACT(YEAR FROM date), EXTRACT(MONTH FROM date)
     - Prefer yearly analysis unless monthly reveals significantly different insights
     - Avoid creating redundant metrics - choose the most meaningful time granularity
     - Avoid daily granularity - focus on years primarily, months when necessary
