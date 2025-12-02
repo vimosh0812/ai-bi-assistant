@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { DEFAULT_NAMES } from "@/lib/config";
 import { createClient } from "@/lib/supabase/client";
 import TableauViz from "@/components/tableauviz";
-import { ArrowLeft, Edit3, Eye, BarChart3, TrendingUp, Home } from "lucide-react";
+import { ArrowLeft, Edit3, Eye, BarChart3, TrendingUp, Home, Bot } from "lucide-react";
 import { OpenAIKPIAnalysis } from "@/types/kpi";
 import { KPIChart } from "@/components/kpi-chart";
+import { CSVChatbot } from "@/components/csv-chatbot";
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
@@ -52,6 +53,7 @@ export default function FileAnalyticsPage() {
   const [folderName, setFolderName] = useState<string>("");
   const [deletingMetricIndex, setDeletingMetricIndex] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showChatbot, setShowChatbot] = useState(false);
 
   // Fetch file details and CSV content
   useEffect(() => {
@@ -372,6 +374,18 @@ export default function FileAnalyticsPage() {
             </Button>
           )}
           
+          {/* Ask AI Button */}
+          {fileDetails && (
+            <Button
+              onClick={() => setShowChatbot(true)}
+              className="flex items-center gap-2"
+              variant="outline"
+            >
+              <Bot className="h-4 w-4" />
+              Ask AI
+            </Button>
+          )}
+          
           {/* Tableau Connection Buttons - Only show if Tableau connected */}
           {/* {response?.success && response.data?.workbook?.sheetUrl && (
             <Button
@@ -540,6 +554,17 @@ export default function FileAnalyticsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Chatbot */}
+      {showChatbot && fileDetails && (
+        <CSVChatbot 
+          file={{
+            ...fileDetails,
+            name: fileDetails.file_name || fileDetails.name || "CSV File"
+          } as any} 
+          onClose={() => setShowChatbot(false)} 
+        />
+      )}
     </div>
   );
 }
