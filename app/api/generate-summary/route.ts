@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { filterIdColumns, filterIdColumnsFromData } from "@/lib/utils";
 
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -11,8 +12,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing headers or rows" }, { status: 400 });
     }
 
+    // Filter out 'id' columns first (conflicts with PRIMARY KEY)
+    const { filteredHeaders: headersWithoutId, idColumnsRemoved } = filterIdColumns(headers);
+    const filteredData = filterIdColumnsFromData(rows, headers, headersWithoutId);
+    
+    if (idColumnsRemoved.length > 0) {
+      console.log(`⚠️ Removed ${idColumnsRemoved.length} 'id' column(s) from summary generation:`, idColumnsRemoved);
+    }
+
     // Take up to 3 random non-empty rows (reduced for token efficiency)
-    const sampleRows = [...rows]
+    const sampleRows = [...filteredData]
       .filter(r => Object.values(r).some(v => typeof v === "string" && v.trim() !== ""))
       .sort(() => 0.5 - Math.random())
       .slice(0, 3);
@@ -57,9 +66,10 @@ Rules:
   * Any column that can be derived/calculated from other columns
 - modifiedHeaders: add currency symbol to currency column names
 - importantColumns: exclude redundant columns
-- irrelevantColumns: include redundant columns
+- irrelevantColumns: include redundant columns AND any column named "id" (case-insensitive) - these are automatically filtered out to avoid database conflicts
 
-Headers: ${headers.join(", ")}
+Headers: ${headersWithoutId.join(", ")}
+${idColumnsRemoved.length > 0 ? `\n⚠️ Note: The following 'id' column(s) were removed to avoid conflicts: ${idColumnsRemoved.join(", ")}` : ''}
 Samples: ${preview}`;
 
     const completion = await openai.chat.completions.create({

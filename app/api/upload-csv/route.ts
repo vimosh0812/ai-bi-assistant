@@ -40,9 +40,10 @@ export async function POST(request: NextRequest) {
     console.log("CSV uploaded successfully");
 
     // Create temporary table for SQL queries
-    console.log("Creating temporary table for SQL queries...");
-    console.log("CSV data sample:", {
+    console.log("🔄 Starting temporary table creation process...");
+    console.log("📋 CSV data summary:", {
       totalRows: csvData.length,
+      headerCount: headers.length,
       headers: headers.slice(0, 5),
       firstRow: csvData[0] ? Object.keys(csvData[0]).slice(0, 5) : 'No data',
       firstRowValues: csvData[0] ? Object.values(csvData[0]).slice(0, 3) : 'No data'
@@ -56,11 +57,12 @@ export async function POST(request: NextRequest) {
     );
 
     if (!tempTableResult.success) {
-      console.error("Failed to create temporary table:", tempTableResult.error);
-      // Continue without temporary table - we can still store the file
-      console.log("Continuing without temporary table...");
+      console.error("❌ Failed to create temporary table:", tempTableResult.error);
+      console.log("⚠️ Continuing without temporary table - file will be stored but SQL queries may not work");
     } else {
-      console.log("Temporary table created successfully:", tempTableResult.tableName);
+      console.log("✅ Temporary table created successfully in backend!");
+      console.log(`   Table name: ${tempTableResult.tableName}`);
+      console.log(`   Ready for SQL query execution`);
     }
 
     const { data: newFile, error: insertError } = await supabase

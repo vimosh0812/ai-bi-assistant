@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Upload, FileText, BarChart3, Table, Database, TrendingUp, Users, DollarSign, Clock, Activity, Cpu, ArrowLeft } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, filterIdColumns, filterIdColumnsFromData } from "@/lib/utils"
 import { processDateColumns } from "@/lib/date-utils"
 import { Pie, Bar, Line, Doughnut } from "react-chartjs-2"
 import Papa from "papaparse"
@@ -220,8 +220,14 @@ export default function AnalyticsPage() {
     data: Record<string, any>[],
     aiOutput: { personalColumns?: { name: string; type: string }[]; currencyColumns?: { name: string; currency: string }[] }
   ) => {
-    let processedData = [...data]
-    let processedHeaders = [...headers]
+    // Filter out 'id' columns first (conflicts with PRIMARY KEY)
+    const { filteredHeaders: headersWithoutId, idColumnsRemoved } = filterIdColumns(headers);
+    let processedData = filterIdColumnsFromData(data, headers, headersWithoutId);
+    let processedHeaders = [...headersWithoutId]
+    
+    if (idColumnsRemoved.length > 0) {
+      console.log(`⚠️ Removed ${idColumnsRemoved.length} 'id' column(s) during preprocessing:`, idColumnsRemoved);
+    }
 
     // Remove personal/privacy columns
     if (aiOutput.personalColumns?.length) {

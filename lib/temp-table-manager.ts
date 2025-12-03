@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { filterIdColumns, filterIdColumnsFromData } from "@/lib/utils";
 
 export interface TempTableInfo {
   tableName: string;
@@ -53,9 +54,28 @@ export class TempTableManager {
         return { success: false, error: "No headers provided" };
       }
 
-      // Create table with dynamic columns based on headers
-      const sanitizedHeaders = headers.map(header => this.sanitizeColumnName(header));
-      const columnDefinitions = sanitizedHeaders.map(header => `"${header}" TEXT`).join(', ');
+      // Filter out 'id' column if it exists (conflicts with SERIAL PRIMARY KEY)
+      // Use utility function for consistent filtering across the codebase
+      const { filteredHeaders, idColumnsRemoved } = filterIdColumns(headers);
+      
+      if (filteredHeaders.length === 0) {
+        return { success: false, error: "No valid headers after filtering (all headers were 'id')" };
+      }
+      
+      // Filter data to match filtered headers
+      const filteredData = filterIdColumnsFromData(data, headers, filteredHeaders);
+
+      // Create table with dynamic columns based on filtered headers
+      const sanitizedHeaders = filteredHeaders.map(header => this.sanitizeColumnName(header));
+      
+      // Check for duplicate sanitized headers
+      const uniqueSanitizedHeaders = [...new Set(sanitizedHeaders)];
+      if (uniqueSanitizedHeaders.length !== sanitizedHeaders.length) {
+        console.warn(`⚠️ Duplicate sanitized headers detected, using unique set`);
+        console.warn(`   Original: ${sanitizedHeaders.length}, Unique: ${uniqueSanitizedHeaders.length}`);
+      }
+      
+      const columnDefinitions = uniqueSanitizedHeaders.map(header => `"${header}" TEXT`).join(', ');
 
       const createTableQuery = `
         CREATE TABLE IF NOT EXISTS "${tableName}" (
@@ -64,41 +84,94 @@ export class TempTableManager {
         )
       `;
 
-      console.log(`Creating temporary table: ${tableName}`);
-      console.log(`Original headers:`, headers.slice(0, 5));
-      console.log(`Sanitized headers:`, sanitizedHeaders.slice(0, 5));
-      console.log(`Table structure: ${createTableQuery}`);
+      console.log(`📊 Creating temporary table: ${tableName}`);
+      console.log(`   Original headers (${headers.length}):`, headers.slice(0, 5));
+      console.log(`   Filtered headers (${filteredHeaders.length}):`, filteredHeaders.slice(0, 5));
+      console.log(`   Sanitized headers (${uniqueSanitizedHeaders.length}):`, uniqueSanitizedHeaders.slice(0, 5));
+      console.log(`   Data rows: ${data.length}`);
+      console.log(`   Table structure: ${createTableQuery}`);
 
       // Execute table creation using the custom function
-      const { error: createError } = await supabase.rpc('create_temp_table', {
+      const { data: createResult, error: createError } = await supabase.rpc('create_temp_table', {
         table_name: tableName,
         column_definitions: columnDefinitions
       });
 
       if (createError) {
-        console.error("Error creating table:", createError);
+        console.error("❌ Error creating table:", createError);
         return { success: false, error: `Failed to create table: ${createError.message}` };
+      }
+
+      // Check if the RPC function returned success
+      // The RPC function returns TRUE on success, FALSE on failure
+      if (createResult === false || createResult === null || createResult === undefined) {
+        console.error("❌ Table creation RPC returned false/null - table may not have been created");
+        console.error(`   RPC result: ${createResult}`);
+        return { success: false, error: `Table creation RPC returned ${createResult}` };
+      }
+
+      console.log(`✅ Table creation RPC succeeded (returned: ${createResult})`);
+
+      // Verify the table exists by checking if it's in the information_schema
+      const { data: tableExists, error: checkError } = await supabase.rpc('exec_sql_with_result', {
+        query: `
+          SELECT table_name 
+          FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_name = '${tableName}'
+        `
+      });
+
+      if (checkError) {
+        console.warn("⚠️ Could not verify table existence:", checkError);
+      } else if (!tableExists || tableExists.length === 0 || !tableExists[0]?.table_name) {
+        console.error(`❌ Table ${tableName} was not found in information_schema after creation`);
+        return { success: false, error: `Table was not created - verification failed` };
+      } else {
+        console.log(`✅ Verified: Table ${tableName} exists in database`);
+      }
+
+      // Verify table structure by checking columns
+      const { data: columnData, error: columnError } = await supabase.rpc('exec_sql_with_result', {
+        query: `
+          SELECT column_name, data_type 
+          FROM information_schema.columns 
+          WHERE table_schema = 'public' 
+          AND table_name = '${tableName}'
+          ORDER BY ordinal_position
+        `
+      });
+
+      if (columnError) {
+        console.warn("⚠️ Could not verify table structure:", columnError);
+      } else {
+        console.log(`✅ Table structure verified: ${columnData?.length || 0} columns found`);
+        console.log(`   Columns:`, columnData?.slice(0, 10).map((c: any) => `${c.column_name} (${c.data_type})`).join(', '));
       }
 
       // Insert data in batches to avoid memory issues
       const batchSize = 1000;
       const batches = [];
       
-      for (let i = 0; i < data.length; i += batchSize) {
-        batches.push(data.slice(i, i + batchSize));
+      for (let i = 0; i < filteredData.length; i += batchSize) {
+        batches.push(filteredData.slice(i, i + batchSize));
       }
 
-      console.log(`Inserting ${data.length} rows in ${batches.length} batches`);
+      console.log(`Inserting ${filteredData.length} rows in ${batches.length} batches`);
 
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
         
         // Transform the batch data to use sanitized column names
+        // Only include filtered headers (excluding 'id' column)
         const transformedBatch = batch.map(row => {
           const transformedRow: any = {};
-          headers.forEach(header => {
+          filteredHeaders.forEach(header => {
             const sanitizedHeader = this.sanitizeColumnName(header);
-            transformedRow[sanitizedHeader] = row[header];
+            // Only add if it's in our unique sanitized headers list
+            if (uniqueSanitizedHeaders.includes(sanitizedHeader)) {
+              transformedRow[sanitizedHeader] = row[header];
+            }
           });
           return transformedRow;
         });
@@ -106,7 +179,8 @@ export class TempTableManager {
         console.log(`Processing batch ${i + 1}/${batches.length}:`, {
           batchSize: batch.length,
           originalHeaders: headers.slice(0, 5),
-          sanitizedHeaders: sanitizedHeaders.slice(0, 5),
+          filteredHeaders: filteredHeaders.slice(0, 5),
+          sanitizedHeaders: uniqueSanitizedHeaders.slice(0, 5),
           sampleRow: batch[0] ? Object.keys(batch[0]).slice(0, 5) : 'No data',
           sampleData: batch[0] ? Object.values(batch[0]).slice(0, 3) : 'No data',
           transformedSample: transformedBatch[0] ? Object.keys(transformedBatch[0]).slice(0, 5) : 'No data'
@@ -132,17 +206,46 @@ export class TempTableManager {
       }
 
       // Verify data was inserted by counting rows
+      console.log(`🔍 Verifying data insertion for table: ${tableName}`);
       const { data: countData, error: countError } = await supabase.rpc('exec_sql_with_result', {
         query: `SELECT COUNT(*) as row_count FROM "${tableName}"`
       });
 
       if (countError) {
-        console.warn("Could not verify row count:", countError);
+        console.error("❌ Could not verify row count:", countError);
+        return { success: false, error: `Failed to verify data insertion: ${countError.message}` };
       } else {
-        console.log(`Verification: Table ${tableName} contains ${countData?.[0]?.row_count || 0} rows`);
+        const actualRowCount = countData?.[0]?.row_count || 0;
+        const expectedRowCount = data.length;
+        console.log(`📊 Row count verification:`);
+        console.log(`   Expected: ${expectedRowCount} rows`);
+        console.log(`   Actual: ${actualRowCount} rows`);
+        
+        if (actualRowCount !== expectedRowCount) {
+          console.warn(`⚠️ Row count mismatch! Expected ${expectedRowCount} but found ${actualRowCount}`);
+          // Don't fail here, but log the warning
+        } else {
+          console.log(`✅ Row count matches expected value`);
+        }
       }
 
-      console.log(`Successfully created temporary table: ${tableName} with ${data.length} rows`);
+      // Final verification: Try to select a sample row
+      const { data: sampleData, error: sampleError } = await supabase.rpc('exec_sql_with_result', {
+        query: `SELECT * FROM "${tableName}" LIMIT 1`
+      });
+
+      if (sampleError) {
+        console.warn("⚠️ Could not fetch sample row:", sampleError);
+      } else {
+        console.log(`✅ Sample row verification: Successfully retrieved sample data`);
+        if (sampleData && sampleData.length > 0) {
+          console.log(`   Sample row keys:`, Object.keys(sampleData[0]).slice(0, 5).join(', '));
+        }
+      }
+
+      console.log(`🎉 Successfully created and verified temporary table: ${tableName}`);
+      console.log(`   Total rows inserted: ${data.length}`);
+      console.log(`   Table ready for SQL queries`);
 
       return { success: true, tableName };
 

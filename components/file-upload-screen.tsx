@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Upload, FileText, ArrowLeft, Cpu, AlertTriangle, Edit2, Trash2, Plus, X, Check, DollarSign } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, filterIdColumns, filterIdColumnsFromData } from "@/lib/utils"
 import { processDateColumns } from "@/lib/date-utils"
 import { Pie, Bar } from "react-chartjs-2"
 import Papa from "papaparse"
@@ -180,8 +180,14 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     aiOutput: { personalColumns?: { name: string; type: string }[]; currencyColumns?: { name: string; currency: string }[]; dateColumns?: Array<{ name: string; separator?: string; format?: string }> },
     urlColumnsToRemove: string[] = []
   ) => {
-    let processedData = [...data]
-    let processedHeaders = [...headers]
+    // Filter out 'id' columns first (conflicts with PRIMARY KEY)
+    const { filteredHeaders: headersWithoutId, idColumnsRemoved } = filterIdColumns(headers);
+    let processedData = filterIdColumnsFromData(data, headers, headersWithoutId);
+    let processedHeaders = [...headersWithoutId]
+    
+    if (idColumnsRemoved.length > 0) {
+      console.log(`⚠️ Removed ${idColumnsRemoved.length} 'id' column(s) during preprocessing:`, idColumnsRemoved);
+    }
 
     // Remove URL columns first (don't send to AI)
     if (urlColumnsToRemove.length > 0) {

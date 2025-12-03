@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { OpenAIKPIAnalysis } from "@/types/kpi";
+import { filterIdColumns, filterIdColumnsFromData } from "@/lib/utils";
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -93,8 +94,16 @@ export async function POST(req: Request) {
     // fileId is optional for this endpoint
     console.log("Generating KPI analysis for fileId:", fileId || "preview");
 
+    // Filter out 'id' columns first (conflicts with PRIMARY KEY)
+    const { filteredHeaders: headersWithoutId, idColumnsRemoved } = filterIdColumns(headers);
+    const filteredData = filterIdColumnsFromData(rows, headers, headersWithoutId);
+    
+    if (idColumnsRemoved.length > 0) {
+      console.log(`⚠️ Removed ${idColumnsRemoved.length} 'id' column(s) from KPI analysis:`, idColumnsRemoved);
+    }
+
     // Take 20 rows for better analysis: first 2, last 2, and 16 random rows
-    const filteredRows = rows.filter(r => Object.values(r).some(v => typeof v === "string" && v.trim() !== ""))
+    const filteredRows = filteredData.filter(r => Object.values(r).some(v => typeof v === "string" && v.trim() !== ""))
     
     let sampleRows = []
     
@@ -123,13 +132,15 @@ export async function POST(req: Request) {
 
     // Analyze column values to help OpenAI understand data structure
     // IMPORTANT: Use ALL rows for unique values calculation, not just sample rows
-    const columnAnalysis = analyzeColumnValues(filteredRows, headers);
+    // Use filtered headers (without 'id' columns)
+    const columnAnalysis = analyzeColumnValues(filteredRows, headersWithoutId);
     console.log("Column analysis (calculated from ALL rows):", columnAnalysis);
 
     const preview = sampleRows.map((row, i) => `${i + 1}. ${JSON.stringify(row)}`).join("\n");
 
     // Sanitize headers to match database column names (lowercase with underscores)
-    const sanitizedHeaders = headers.map((header: string) => 
+    // Use filtered headers (without 'id' columns)
+    const sanitizedHeaders = headersWithoutId.map((header: string) => 
       header.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
     );
     
@@ -137,14 +148,15 @@ export async function POST(req: Request) {
     Analyze the provided dataset and generate comprehensive KPI analysis.
     
     Dataset Information:
-    Headers: ${headers.join(", ")}
+    Headers: ${headersWithoutId.join(", ")}
     Database Column Names: ${sanitizedHeaders.join(", ")}
+    ${idColumnsRemoved.length > 0 ? `\n⚠️ Note: The following 'id' column(s) were removed to avoid conflicts: ${idColumnsRemoved.join(", ")}` : ''}
     Sample Data:
     ${preview}
     
     COLUMN ANALYSIS (Critical for chart generation):
     ${Object.entries(columnAnalysis).map(([column, analysis], index) => {
-      const sanitizedColumn = sanitizedHeaders[index];
+      const sanitizedColumn = sanitizedHeaders[index] || column.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
       let analysisText = `- ${column} (${sanitizedColumn}): ${analysis.type.toUpperCase()}`;
       analysisText += ` (${analysis.uniqueValues} unique values)`;
       
@@ -176,11 +188,11 @@ export async function POST(req: Request) {
     - Always cast before performing SUM(), AVG(), MAX(), MIN(), or any arithmetic operations
     - Examples: SUM(CAST(Price AS NUMERIC)), AVG(CAST(Revenue AS NUMERIC)), CAST(Date_year AS NUMERIC)
     - Date examples: GROUP BY CAST(Date_year AS NUMERIC), ORDER BY CAST(Date_year AS NUMERIC)
-    - 🚨 REMINDER: Every time you write a numeric operation, ask yourself "Did I cast it to NUMERIC?"
+    - REMINDER: Every time you write a numeric operation, ask yourself "Did I cast it to NUMERIC?"
     
-    🗄️ DATABASE SYSTEM: You are generating PostgreSQL SQL queries - use PostgreSQL syntax and functions.
+    DATABASE SYSTEM: You are generating PostgreSQL SQL queries - use PostgreSQL syntax and functions.
     
-    📝 COLUMN NAME MAPPING:
+    COLUMN NAME MAPPING:
     - Use the "Database Column Names" (sanitized versions) in your SQL queries
     - Original headers are for reference only - use sanitized names in SQL
     - Example: "Payment Method" becomes "payment_method" in SQL queries
@@ -309,7 +321,7 @@ export async function POST(req: Request) {
     - For aggregations: SUM(CAST(column_name AS NUMERIC)) or SUM(column_name::NUMERIC)
     - For comparisons: WHERE CAST(column_name AS NUMERIC) > 100
     - For date operations: Use preprocessed date columns (Date_year, Date_month, Date_day) as NUMERIC
-    - ⚠️ ALWAYS REMEMBER: When you see numeric values, immediately think CAST(column AS NUMERIC)
+    - ALWAYS REMEMBER: When you see numeric values, immediately think CAST(column AS NUMERIC)
     - Examples:
       * SUM(CAST(Price AS NUMERIC)) instead of SUM(Price)
       * AVG(CAST(Revenue AS NUMERIC)) instead of AVG(Revenue)
@@ -336,9 +348,6 @@ export async function POST(req: Request) {
     - Use meaningful business column names in results
     - Order by count/total DESC for better visualization`;
 
-    // TEMPORARILY DISABLED: OpenAI API call for manual inspection
-    // TODO: Re-enable after manual inspection
-    /*
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -349,7 +358,9 @@ export async function POST(req: Request) {
       max_tokens: 2000,
     });
 
-    // Print token usage
+    // Log token usage
+    const inputTokens = completion.usage?.prompt_tokens || 0;
+    const totalTokens = completion.usage?.total_tokens || 0;
     console.log("OpenAI Token Usage:");
     console.log("- Prompt tokens:", completion.usage?.prompt_tokens || "N/A");
     console.log("- Completion tokens:", completion.usage?.completion_tokens || "N/A");
@@ -357,12 +368,6 @@ export async function POST(req: Request) {
 
     const rawResponse = completion.choices[0]?.message?.content ?? "{}";
     console.log("OpenAI KPI Analysis raw response:", rawResponse);
-    */
-    
-    // Temporary: Return mock response for manual inspection
-    console.log("⚠️ OpenAI API call is TEMPORARILY DISABLED for manual inspection");
-    console.log("Column analysis with unique values from ALL rows:", JSON.stringify(columnAnalysis, null, 2));
-    const rawResponse = "{}";
 
     let parsed: OpenAIKPIAnalysis;
     try {
