@@ -218,17 +218,17 @@ export default function AnalyticsPage() {
   const preprocessData = (
     headers: string[],
     data: Record<string, any>[],
-    aiOutput: { emailColumns?: { name: string; type: string }[]; currencyColumns?: { name: string; currency: string }[] }
+    aiOutput: { personalColumns?: { name: string; type: string }[]; currencyColumns?: { name: string; currency: string }[] }
   ) => {
     let processedData = [...data]
     let processedHeaders = [...headers]
 
-    // Remove email columns
-    if (aiOutput.emailColumns?.length) {
-      const emailColumnNames = aiOutput.emailColumns.map((col) =>
+    // Remove personal/privacy columns
+    if (aiOutput.personalColumns?.length) {
+      const personalColumnNames = aiOutput.personalColumns.map((col) =>
         typeof col === "string" ? col : col.name
       )
-      processedHeaders = processedHeaders.filter((h) => !emailColumnNames.includes(h))
+      processedHeaders = processedHeaders.filter((h) => !personalColumnNames.includes(h))
       processedData = processedData.map((row) => {
         const newRow: Record<string, any> = {}
         processedHeaders.forEach((h) => (newRow[h] = row[h]))
@@ -317,8 +317,8 @@ export default function AnalyticsPage() {
         body: JSON.stringify({ headers, rows: rows.slice(0, 5) }),
       })
       const data = await res.json()
-      console.log("AI Summary response:", data)
-      setAiSummary(data.summary || "No summary available")
+      console.log("AI Analysis response:", data)
+      // Summary is no longer generated - removed to save tokens
     } catch (err) {
       console.error(err)
       setAiSummary("Failed to generate AI summary")

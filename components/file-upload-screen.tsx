@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Upload, FileText, ArrowLeft, Cpu, AlertTriangle, Edit2, Trash2, Plus, X, Check } from "lucide-react"
+import { Upload, FileText, ArrowLeft, Cpu, AlertTriangle, Edit2, Trash2, Plus, X, Check, DollarSign } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { processDateColumns } from "@/lib/date-utils"
 import { Pie, Bar } from "react-chartjs-2"
@@ -54,8 +54,12 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
   const [processedData, setProcessedData] = useState<Record<string, any>[]>([])
   const [aiEmailColumns, setAiEmailColumns] = useState<(string | { name: string; type: string })[]>([])
   const [aiCurrencyColumns, setAiCurrencyColumns] = useState<(string | { name: string; currency: string })[]>([])
+  const [aiDateColumns, setAiDateColumns] = useState<Array<{ name: string; separator?: string; format?: string }>>([])
   const [importantColumns, setImportantColumns] = useState<string[]>([])
   const [irrelevantColumns, setIrrelevantColumns] = useState<string[]>([])
+  const [redundantColumns, setRedundantColumns] = useState<string[]>([])
+  const [aiModifiedHeaders, setAiModifiedHeaders] = useState<string[]>([])
+  const [originalHeadersBeforePreprocessing, setOriginalHeadersBeforePreprocessing] = useState<string[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
   const [isDataProcessed, setIsDataProcessed] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -66,9 +70,13 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
   const [editingColumn, setEditingColumn] = useState<string | null>(null)
   const [editingRowIndex, setEditingRowIndex] = useState<number | null>(null)
   const [deleteColumnDialog, setDeleteColumnDialog] = useState<{ open: boolean; column: string; percentage: number; isImportant: boolean }>({ open: false, column: "", percentage: 0, isImportant: false })
+  const [preprocessConfirmDialog, setPreprocessConfirmDialog] = useState(false)
   const [columnsToAutoRemove, setColumnsToAutoRemove] = useState<string[]>([])
   const [privacyColumnsToRemove, setPrivacyColumnsToRemove] = useState<string[]>([])
   const [urlColumnsToRemove, setUrlColumnsToRemove] = useState<string[]>([])
+  // Store original data before preprocessing to restore when going back
+  const [originalHeaders, setOriginalHeaders] = useState<string[]>([])
+  const [originalData, setOriginalData] = useState<Record<string, any>[]>([])
 
   const parseCSV: (file: File) => Promise<{ headers: string[]; rows: Record<string, any>[] }> = async (file: File) => {
     const text = await file.text()
@@ -167,13 +175,13 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
   const preprocessData = (
     headers: string[],
     data: Record<string, any>[],
-    aiOutput: { emailColumns?: { name: string; type: string }[]; currencyColumns?: { name: string; currency: string }[] },
+    aiOutput: { personalColumns?: { name: string; type: string }[]; currencyColumns?: { name: string; currency: string }[]; dateColumns?: Array<{ name: string; separator?: string; format?: string }> },
     urlColumnsToRemove: string[] = []
   ) => {
     let processedData = [...data]
     let processedHeaders = [...headers]
 
-    // Remove URL columns (don't send to AI)
+    // Remove URL columns first (don't send to AI)
     if (urlColumnsToRemove.length > 0) {
       processedHeaders = processedHeaders.filter((h) => !urlColumnsToRemove.includes(h))
       processedData = processedData.map((row) => {
@@ -183,12 +191,19 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
       })
     }
 
-    // Remove email columns (handle objects with name/type)
-    if (aiOutput.emailColumns?.length) {
-      const emailColumnNames = aiOutput.emailColumns.map((col) =>
+    // Remove personal/privacy columns (handle objects with name/type)
+    if (aiOutput.personalColumns?.length) {
+      const personalColumnNames = aiOutput.personalColumns.map((col) =>
         typeof col === "string" ? col : col.name
       )
-      processedHeaders = processedHeaders.filter((h) => !emailColumnNames.includes(h))
+      console.log("🔍 Removing personal columns:", personalColumnNames)
+      console.log("🔍 Headers before removal:", processedHeaders)
+      
+      // Filter out any privacy columns that still exist in headers
+      processedHeaders = processedHeaders.filter((h) => !personalColumnNames.includes(h))
+      
+      console.log("🔍 Headers after removal:", processedHeaders)
+      
       processedData = processedData.map((row) => {
         const newRow: Record<string, any> = {}
         processedHeaders.forEach((h) => (newRow[h] = row[h]))
@@ -196,33 +211,139 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
       })
     }
 
-    // Clean currency columns
+    // Clean currency columns and update headers with currency code
     if (aiOutput.currencyColumns?.length) {
+      aiOutput.currencyColumns.forEach((col) => {
+        const colName = typeof col === "string" ? col : col.name
+        const currency = typeof col === "string" ? "USD" : (col.currency || "USD")
+        
+        // Update header name to include currency code (e.g., "Price (LKR)")
+        const newHeaderName = `${colName} (${currency.toUpperCase()})`
+        
+        const headerIndex = processedHeaders.indexOf(colName)
+        if (headerIndex !== -1) {
+          processedHeaders[headerIndex] = newHeaderName
+        }
+      })
+      
       processedData = processedData.map((row) => {
         const newRow = { ...row }
         aiOutput.currencyColumns!.forEach((col) => {
           const colName = typeof col === "string" ? col : col.name
+          const currency = typeof col === "string" ? "USD" : (col.currency || "USD")
+          const newHeaderName = `${colName} (${currency.toUpperCase()})`
+          
           if (
             Object.prototype.hasOwnProperty.call(newRow, colName) &&
             newRow[colName] !== undefined &&
             newRow[colName] !== null &&
             newRow[colName] !== ""
           ) {
-            newRow[colName] = newRow[colName].toString().replace(/[^0-9.-]+/g, "")
+            const cleanedValue = newRow[colName].toString().replace(/[^0-9.-]+/g, "")
+            // Update the key to the new header name
+            delete newRow[colName]
+            newRow[newHeaderName] = cleanedValue
           }
         })
         return newRow
       })
     }
 
-    // Process date columns - detect and split combined date columns
-    const dateProcessingResult = processDateColumns(processedHeaders, processedData)
-    processedHeaders = dateProcessingResult.newHeaders
-    processedData = dateProcessingResult.newData
-    
-    // Log date column processing results
-    if (dateProcessingResult.dateColumnsProcessed.length > 0) {
-      console.log(`✅ Date preprocessing completed: ${dateProcessingResult.dateColumnsProcessed.length} columns split into year/month/day components`)
+    // Process date columns - use AI-identified date columns with format info
+    if (aiOutput.dateColumns && aiOutput.dateColumns.length > 0) {
+      const dateColumnsToProcess = aiOutput.dateColumns.filter(col => processedHeaders.includes(col.name))
+      
+      for (const dateCol of dateColumnsToProcess) {
+        const dateColumn = dateCol.name
+        const separator = dateCol.separator || "/"
+        const format = dateCol.format || "dmy"
+        
+        const yearColumn = `${dateColumn}_year`
+        const monthColumn = `${dateColumn}_month`
+        const dayColumn = `${dateColumn}_day`
+        
+        const yearValues: (number | null)[] = []
+        const monthValues: (number | null)[] = []
+        const dayValues: (number | null)[] = []
+        
+        // Parse each date value based on AI-detected format
+        for (let i = 0; i < processedData.length; i++) {
+          const value = String(processedData[i][dateColumn] || "").trim()
+          let parsed: { year: number | null; month: number | null; day: number | null } = { year: null, month: null, day: null }
+          
+          if (value) {
+            // Handle text-based formats
+            if (format === "dmy_text" || format === "mdy_text") {
+              const parts = value.split(/\s+/)
+              const monthNames: Record<string, number> = {
+                jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+                apr: 4, april: 4, may: 5, jun: 6, june: 6,
+                jul: 7, july: 7, aug: 8, august: 8, sep: 9, september: 9,
+                oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12
+              }
+              
+              if (format === "dmy_text" && parts.length >= 3) {
+                const day = parseInt(parts[0], 10)
+                const monthName = parts[1].toLowerCase().replace(/[,.]/g, '')
+                const year = parseInt(parts[2], 10)
+                const month = monthNames[monthName]
+                if (month && day && year) parsed = { year, month, day }
+              } else if (format === "mdy_text" && parts.length >= 3) {
+                const monthName = parts[0].toLowerCase().replace(/[,.]/g, '')
+                const day = parseInt(parts[1].replace(/[,.]/g, ''), 10)
+                const year = parseInt(parts[2], 10)
+                const month = monthNames[monthName]
+                if (month && day && year) parsed = { year, month, day }
+              }
+            } else {
+              // Handle numeric formats
+              let parts: string[] = []
+              if (separator === " ") {
+                parts = value.split(/\s+/).filter(p => p && !isNaN(Number(p)))
+              } else {
+                const escapeSep = separator === "." ? "\\." : separator === "|" ? "\\|" : separator === "-" ? "\\-" : separator === "/" ? "\\/" : separator
+                const match = value.match(new RegExp(`^(\\d+)[${escapeSep}](\\d+)[${escapeSep}](\\d+)$`))
+                if (match) {
+                  parts = [match[1], match[2], match[3]]
+                } else {
+                  parts = value.split(separator).filter(p => p && !isNaN(Number(p)))
+                }
+              }
+              
+              if (parts.length >= 3) {
+                const p1 = parseInt(parts[0], 10)
+                const p2 = parseInt(parts[1], 10)
+                const p3 = parseInt(parts[2], 10)
+                
+                if (format === "dmy") parsed = { year: p3, month: p2, day: p1 }
+                else if (format === "mdy") parsed = { year: p3, month: p1, day: p2 }
+                else if (format === "ymd") parsed = { year: p1, month: p2, day: p3 }
+              }
+            }
+          }
+          
+          yearValues.push(parsed.year)
+          monthValues.push(parsed.month)
+          dayValues.push(parsed.day)
+        }
+        
+        // Remove original date column
+        const originalIndex = processedHeaders.indexOf(dateColumn)
+        if (originalIndex !== -1) processedHeaders.splice(originalIndex, 1)
+        
+        // Add new date columns
+        processedHeaders.push(yearColumn, monthColumn, dayColumn)
+        
+        // Update data rows
+        processedData.forEach((row, index) => {
+          delete row[dateColumn]
+          row[yearColumn] = yearValues[index]
+          row[monthColumn] = monthValues[index]
+          row[dayColumn] = dayValues[index]
+        })
+      }
+      
+      console.log(`✅ Date preprocessing completed: ${dateColumnsToProcess.length} AI-identified date columns split into year/month/day components`)
     }
 
     // Remove low-value columns (>30% missing)
@@ -297,6 +418,9 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     setModifiedHeaders(headers)
     setProcessedData(rows)
     setSampleRows(rows.slice(0, 5))
+    // Store original data for restoration when going back
+    setOriginalHeaders(headers)
+    setOriginalData(rows)
 
     setLoadingAI(true)
     try {
@@ -306,22 +430,25 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
         body: JSON.stringify({ headers: headersWithoutUrls, rows: rowsWithoutUrls.slice(0, 5) }),
       })
       const data = await res.json()
-      console.log("AI Summary response:", data)
-      setAiSummary(data.summary || "No summary available")
+      console.log("AI Analysis response:", data)
+      // Summary is no longer generated - removed to save tokens
       setImportantColumns(data.importantColumns || [])
       setIrrelevantColumns(data.irrelevantColumns || [])
+      setRedundantColumns(data.redundantColumns || [])
+      setAiModifiedHeaders(data.modifiedHeaders || headers)
       
-      const emailCols = data.emailColumns || []
-      setAiEmailColumns(emailCols)
+      const personalCols = data.personalColumns || []
+      setAiEmailColumns(personalCols)
       
       // Auto-select all detected URL and privacy columns for removal
       setUrlColumnsToRemove(detectedUrlColumns)
-      const privacyCols = emailCols.map((col: any) => 
+      const privacyCols = personalCols.map((col: any) => 
         typeof col === "string" ? col : col.name
       )
       setPrivacyColumnsToRemove(privacyCols)
 
       setAiCurrencyColumns((data.currencyColumns || []).map((c: any) => c.name))
+      setAiDateColumns(data.dateColumns || [])
     } catch (err) {
       console.error(err)
       setAiSummary("Failed to generate AI summary")
@@ -333,6 +460,15 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
   }
 
   const handlePreprocess = async () => {
+    if (!processedData.length) return
+    
+    // Show confirmation dialog first
+    setPreprocessConfirmDialog(true)
+  }
+  
+  const confirmPreprocess = async () => {
+    setPreprocessConfirmDialog(false)
+    
     if (!processedData.length) return
     
     // Auto-remove columns with <5% missing values
@@ -379,25 +515,145 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
   const performPreprocessing = () => {
     setIsProcessing(true)
     
+    // Store original headers before preprocessing for header mapping
+    setOriginalHeadersBeforePreprocessing([...modifiedHeaders])
+    
     // Combine all columns to remove (privacy, URLs, and auto-removed low missing columns)
     const allColumnsToRemove = [...privacyColumnsToRemove, ...urlColumnsToRemove, ...columnsToAutoRemove]
     
-    // Filter out removed columns from email/currency lists
-    const emailColsToProcess = aiEmailColumns
+    // Get ALL privacy columns to remove - include all AI-detected personal columns
+    // Don't filter them out, we want to remove ALL of them
+    const personalColsToProcess = aiEmailColumns
       .map((col) => typeof col === "string" ? { name: col, type: col.toLowerCase().includes("mobile") ? "mobile" : "email" } : col)
-      .filter((col: any) => !allColumnsToRemove.includes(typeof col === "string" ? col : col.name))
+      .filter((col: any) => {
+        const colName = typeof col === "string" ? col : col.name
+        // Only exclude if it's in the auto-remove list (low missing), but keep URLs and privacy columns
+        return !columnsToAutoRemove.includes(colName)
+      })
+    
+    console.log("🔍 Preprocessing - Privacy columns to remove:", personalColsToProcess.map(c => typeof c === "string" ? c : c.name))
+    console.log("🔍 Preprocessing - URL columns to remove:", urlColumnsToRemove)
     
     const result = preprocessData(modifiedHeaders, processedData, {
-      emailColumns: emailColsToProcess,
+      personalColumns: personalColsToProcess,
       currencyColumns: aiCurrencyColumns.map((col) =>
       typeof col === "string"
         ? { name: col, currency: "unknown" }
         : col 
       ),
+      dateColumns: aiDateColumns,
     }, urlColumnsToRemove)
-    setModifiedHeaders(result.processedHeaders)
-    setProcessedData(result.processedData)
-    setSummary(generateDataQualitySummary(result.processedHeaders, result.processedData))
+    
+    // After preprocessing, remove irrelevant and redundant columns
+    let finalHeaders = [...result.processedHeaders]
+    let finalData = [...result.processedData]
+    
+    // Combine all columns to remove
+    const columnsToRemove = [
+      ...irrelevantColumns,
+      ...redundantColumns
+    ].filter(col => finalHeaders.includes(col))
+    
+    console.log("🔍 Removing irrelevant/redundant columns:", columnsToRemove)
+    
+    // Remove irrelevant and redundant columns
+    if (columnsToRemove.length > 0) {
+      finalHeaders = finalHeaders.filter((h) => !columnsToRemove.includes(h))
+      finalData = finalData.map((row) => {
+        const newRow: Record<string, any> = {}
+        finalHeaders.forEach((h) => (newRow[h] = row[h]))
+        return newRow
+      })
+    }
+    
+    // Apply header modifications if modifiedHeaders are provided
+    // Create a mapping from original headers (before preprocessing) to modified headers
+    const originalHeaders = originalHeadersBeforePreprocessing.length > 0 
+      ? originalHeadersBeforePreprocessing 
+      : modifiedHeaders // Fallback to current if not stored
+      
+    if (aiModifiedHeaders.length > 0 && aiModifiedHeaders.length === originalHeaders.length) {
+      const headerMapping: Record<string, string> = {}
+      
+      originalHeaders.forEach((original, index) => {
+        if (aiModifiedHeaders[index] && original !== aiModifiedHeaders[index]) {
+          headerMapping[original] = aiModifiedHeaders[index]
+        }
+      })
+      
+      console.log("🔍 Header mapping (original -> modified):", headerMapping)
+      console.log("🔍 Current headers after preprocessing:", finalHeaders)
+      
+      // Apply mappings to current headers
+      // We need to map from original header names to modified header names
+      finalHeaders = finalHeaders.map(h => {
+        // Check if this header (or its base name) needs to be modified
+        // First, try to find exact match
+        if (headerMapping[h]) {
+          return headerMapping[h]
+        }
+        
+        // Try removing currency suffix and date suffix
+        const baseHeader = h.replace(/\s*\([A-Z]+\)\s*$/, '').replace(/_year$|_month$|_day$/, '')
+        if (headerMapping[baseHeader]) {
+          // If it's a date column, preserve the suffix
+          if (h.includes('_year') || h.includes('_month') || h.includes('_day')) {
+            const suffix = h.includes('_year') ? '_year' : h.includes('_month') ? '_month' : '_day'
+            return headerMapping[baseHeader] + suffix
+          }
+          // If it's a currency column, the mapping should already include the currency
+          return headerMapping[baseHeader]
+        }
+        
+        return h
+      })
+      
+      // Update data rows with new header names
+      finalData = finalData.map((row) => {
+        const newRow: Record<string, any> = {}
+        finalHeaders.forEach((newHeader) => {
+          // Find which original header this new header came from
+          let sourceHeader = newHeader
+          
+          // Check if this is a mapped header
+          const mappedOriginal = Object.keys(headerMapping).find(
+            orig => {
+              const mapped = headerMapping[orig]
+              if (mapped === newHeader) return true
+              // Handle date columns
+              if (newHeader.endsWith('_year') || newHeader.endsWith('_month') || newHeader.endsWith('_day')) {
+                const suffix = newHeader.endsWith('_year') ? '_year' : newHeader.endsWith('_month') ? '_month' : '_day'
+                return mapped + suffix === newHeader
+              }
+              return false
+            }
+          )
+          
+          if (mappedOriginal) {
+            // If it's a date column, find the original date column name
+            if (newHeader.endsWith('_year') || newHeader.endsWith('_month') || newHeader.endsWith('_day')) {
+              const suffix = newHeader.endsWith('_year') ? '_year' : newHeader.endsWith('_month') ? '_month' : '_day'
+              sourceHeader = mappedOriginal + suffix
+            } else {
+              sourceHeader = mappedOriginal
+            }
+          }
+          
+          // Try to get value from source header or new header
+          newRow[newHeader] = row[newHeader] ?? row[sourceHeader] ?? ""
+        })
+        return newRow
+      })
+      
+      console.log("🔍 Final headers after modification:", finalHeaders)
+    }
+    
+    console.log("🔍 Final headers after cleanup:", finalHeaders)
+    console.log("🔍 Final data rows:", finalData.length)
+    
+    setModifiedHeaders(finalHeaders)
+    setProcessedData(finalData)
+    setSummary(generateDataQualitySummary(finalHeaders, finalData))
     
     setIsProcessing(false)
     setIsDataProcessed(true)
@@ -443,6 +699,38 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
     return rows
   }
 
+  const getColumnStats = (column: string) => {
+    const values = processedData.map(row => row[column]).filter(val => 
+      val !== null && val !== undefined && val !== ""
+    )
+    const uniqueValues = new Set(values.map(v => String(v))).size
+    const missingCount = processedData.length - values.length
+    const missingPercentage = ((missingCount / processedData.length) * 100).toFixed(1)
+    
+    // Determine data type
+    const numericCount = values.filter(v => !isNaN(Number(v)) && v !== "").length
+    const dateCount = values.filter(v => {
+      if (typeof v === "string") {
+        return !isNaN(Date.parse(v)) || /^\d{4}-\d{2}-\d{2}/.test(v) || /^\d{2}\/\d{2}\/\d{4}/.test(v)
+      }
+      return false
+    }).length
+    
+    let dataType = "text"
+    if (dateCount > values.length * 0.7) {
+      dataType = "date"
+    } else if (numericCount > values.length * 0.7) {
+      dataType = "numeric"
+    }
+    
+    return {
+      uniqueValues,
+      missingCount,
+      missingPercentage,
+      dataType
+    }
+  }
+
   const handleNextToSummary = () => {
     if (file && name.trim()) {
       setCurrentStep(2)
@@ -452,6 +740,16 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
   /** Handle back to previous step */
   const handleBackToPreviousStep = () => {
     if (currentStep === 3) {
+      // Restore original data when going back from preprocessed view
+      if (originalHeaders.length > 0 && originalData.length > 0) {
+        setModifiedHeaders(originalHeaders)
+        setProcessedData(originalData)
+        setSummary(generateDataQualitySummary(originalHeaders, originalData))
+        setIsDataProcessed(false)
+        setIsProcessing(false)
+        // Reset columns to auto-remove
+        setColumnsToAutoRemove([])
+      }
       setCurrentStep(2)
     } else if (currentStep === 2) {
       setCurrentStep(1)
@@ -697,31 +995,31 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
           {/* Top Metrics Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
             {/* Total Rows */}
-            <div className="bg-white border border-gray-200 shadow-lg rounded-xl p-5 flex flex-col justify-between hover:shadow-xl transition-shadow">
+            <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col justify-between transition-shadow">
               <p className="text-gray-600 text-sm font-medium mb-2">Total Rows</p>
               <p className="text-3xl font-bold text-black">{generateDataQualitySummary(modifiedHeaders, processedData).totalRows}</p>
             </div>
 
             {/* Total Columns */}
-            <div className="bg-white border border-gray-200 shadow-lg rounded-xl p-5 flex flex-col justify-between hover:shadow-xl transition-shadow">
+            <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col justify-between transition-shadow">
               <p className="text-gray-600 text-sm font-medium mb-2">Total Columns</p>
               <p className="text-3xl font-bold text-black">{generateDataQualitySummary(modifiedHeaders, processedData).totalColumns}</p>
             </div>
 
             {/* Empty Rows */}
-            <div className="bg-white border border-gray-200 shadow-lg rounded-xl p-5 flex flex-col justify-between hover:shadow-xl transition-shadow">
+            <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col justify-between transition-shadow">
               <p className="text-gray-600 text-sm font-medium mb-2">Empty Rows</p>
               <p className="text-3xl font-bold text-black">{generateDataQualitySummary(modifiedHeaders, processedData).emptyRowCount}</p>
             </div>
 
             {/* Duplicate Rows */}
-            <div className="bg-white border border-gray-200 shadow-lg rounded-xl p-5 flex flex-col justify-between hover:shadow-xl transition-shadow">
+            <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col justify-between transition-shadow">
               <p className="text-gray-600 text-sm font-medium mb-2">Duplicate Rows</p>
               <p className="text-3xl font-bold text-black">{generateDataQualitySummary(modifiedHeaders, processedData).duplicateCount}</p>
             </div>
 
             {/* Rows with Missing Values */}
-            <div className="bg-white border border-red-200 shadow-lg rounded-xl p-5 flex flex-col justify-between hover:shadow-xl transition-shadow">
+            <div className="bg-white border border-red-200 rounded-xl p-5 flex flex-col justify-between transition-shadow">
               <p className="text-red-600 text-sm font-medium mb-2">Rows with Missing Values</p>
               <p className="text-3xl font-bold text-red-600">{generateDataQualitySummary(modifiedHeaders, processedData).rowsWithMissingValues}</p>
             </div>
@@ -731,7 +1029,7 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             {/* Duplicate vs Unique Pie */}
             {pieData && (
-              <div className="bg-white shadow-lg rounded-xl p-6 flex flex-col h-full border border-gray-200">
+              <div className="bg-white rounded-xl p-6 flex flex-col h-full border border-gray-200">
                 <h3 className="text-lg font-semibold mb-4 text-gray-900">Duplicate vs Unique Rows</h3>
                 <div className="flex flex-col h-full">
               <div className="h-48 flex items-center justify-center">
@@ -759,7 +1057,7 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
 
             {/* Missing Values Bar */}
             {barData && (
-              <div className="bg-white shadow-lg rounded-xl p-6 border border-gray-200">
+              <div className="bg-white rounded-xl p-6 border border-gray-200">
                 <h3 className="text-lg font-semibold mb-4 text-gray-900">Missing Values by Column</h3>
                 <div className="h-64 overflow-auto">
                   <Bar data={barData} />
@@ -770,7 +1068,7 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
 
           {/* Privacy & URL Columns Management */}
           {((urlColumns.length > 0) || (aiEmailColumns.length > 0)) && (
-            <div className="bg-white shadow-lg rounded-xl p-6 mb-6 border border-gray-200">
+            <div className="bg-white rounded-xl p-6 mb-3 border border-gray-200">
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-xl font-bold text-black flex items-center gap-2">
@@ -782,27 +1080,39 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
                   </span>
                 </div>
                 <p className="text-sm text-gray-600 mt-2">
-                  These columns will be automatically removed and not sent to AI for analysis. This helps protect sensitive information like emails, phone numbers, and URLs.
+                  These privacy data columns (URLs, emails, phone numbers, addresses, names) will be automatically removed and not sent to AI for analysis. This helps protect sensitive information.
                 </p>
               </div>
 
               <div className="space-y-4">
-                {/* URL Columns */}
-                {urlColumns.length > 0 && (
-                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                    <h4 className="font-semibold text-black mb-3">
-                      URL Columns Detected
-                    </h4>
+                {/* Privacy Data Columns - Combined Display */}
+                {(urlColumns.length > 0 || aiEmailColumns.length > 0) && (
+                  <div className="rounded-lg p-4 bg-white">
+
                     <div className="space-y-2">
+                      {/* URL Columns */}
                       {urlColumns.map((column) => {
                         const sampleValue = processedData.find(row => row[column])?.[column] || "N/A"
+                        const stats = getColumnStats(column)
                         return (
                           <div
                             key={column}
                             className="flex items-center justify-between p-3 rounded-lg border border-red-200 bg-red-50"
                           >
                             <div className="flex-1">
+                              <div className="flex items-center gap-2">
                               <p className="font-medium text-black">{column}</p>
+                                <span className="text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-700">
+                                  URL
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                                <span>{stats.uniqueValues} unique</span>
+                                <span>•</span>
+                                <span>{stats.missingCount} missing ({stats.missingPercentage}%)</span>
+                                <span>•</span>
+                                <span className="capitalize">{stats.dataType}</span>
+                              </div>
                               <p className="text-xs text-gray-500 mt-1">
                                 Sample: {String(sampleValue).substring(0, 50)}{String(sampleValue).length > 50 ? "..." : ""}
                               </p>
@@ -813,23 +1123,28 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
                           </div>
                         )
                       })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Email & Phone Columns */}
-                {aiEmailColumns.length > 0 && (
-                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                    <h4 className="font-semibold text-black mb-3">
-                      Email & Phone Number Columns Detected
-                    </h4>
-                    <div className="space-y-2">
+                      
+                      {/* Personal Data Columns (Email, Phone, Address, Names) */}
                       {aiEmailColumns.map((col, idx) => {
                         const column = typeof col === "string" ? col : col.name
                         const type = typeof col === "string" 
-                          ? (col.toLowerCase().includes("mobile") || col.toLowerCase().includes("phone") ? "phone" : "email")
-                          : (col.type === "mobile" ? "phone" : "email")
+                          ? (col.toLowerCase().includes("mobile") || col.toLowerCase().includes("phone") ? "phone" : 
+                             col.toLowerCase().includes("address") ? "address" :
+                             col.toLowerCase().includes("firstname") || col.toLowerCase().includes("first") ? "firstname" :
+                             col.toLowerCase().includes("lastname") || col.toLowerCase().includes("last") ? "lastname" :
+                             col.toLowerCase().includes("customer") || col.toLowerCase().includes("name") ? "customername" : "email")
+                          : (col.type === "mobile" ? "phone" : 
+                             col.type === "address" ? "address" :
+                             col.type === "firstname" ? "firstname" :
+                             col.type === "lastname" ? "lastname" :
+                             col.type === "customername" ? "customername" : "email")
                         const sampleValue = processedData.find(row => row[column])?.[column] || "N/A"
+                        const typeLabel = type === "phone" ? "Phone" : 
+                                        type === "address" ? "Address" :
+                                        type === "firstname" ? "First Name" :
+                                        type === "lastname" ? "Last Name" :
+                                        type === "customername" ? "Customer Name" : "Email"
+                        const stats = getColumnStats(column)
                         
                         return (
                           <div
@@ -840,8 +1155,15 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
                               <div className="flex items-center gap-2">
                                 <p className="font-medium text-black">{column}</p>
                                 <span className="text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-700">
-                                  {type === "phone" ? "Phone" : "Email"}
+                                  {typeLabel}
                                 </span>
+                              </div>
+                              <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                                <span>{stats.uniqueValues} unique</span>
+                                <span>•</span>
+                                <span>{stats.missingCount} missing ({stats.missingPercentage}%)</span>
+                                <span>•</span>
+                                <span className="capitalize">{stats.dataType}</span>
                               </div>
                               <p className="text-xs text-gray-500 mt-1">
                                 Sample: {String(sampleValue).substring(0, 50)}{String(sampleValue).length > 50 ? "..." : ""}
@@ -876,7 +1198,7 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
             if (missingCols.length === 0) return null
 
             return (
-              <div className="bg-white shadow-lg rounded-xl p-6 mb-6 border border-gray-200">
+              <div className="bg-white rounded-xl p-6 mb-6 border border-gray-200">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-xl font-bold text-black flex items-center gap-2">
                     <AlertTriangle className="h-5 w-5 text-red-600" />
@@ -1029,24 +1351,8 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
 
           {/* AI Summary Section */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            {aiEmailColumns.length > 0 && (
-              <div className="bg-white shadow-lg rounded-xl p-6 flex flex-col h-full min-h-[220px] border border-gray-200">
-                <h3 className="text-lg font-semibold mb-4 text-gray-900">Privacy Details Detected</h3>
-                <ul className="list-disc ml-5 text-sm flex-1 space-y-1">
-                    {aiEmailColumns.map((col, idx) =>
-                      typeof col === "string" ? (
-                        <li key={col} className="text-gray-700">{col}</li>
-                      ) : (
-                        <li key={col.name ?? idx} className="text-gray-700">{col.name}</li>
-                      )
-                    )}
-
-                </ul>
-              </div>
-            )}
-
             {generateDataQualitySummary(modifiedHeaders, processedData).lowValueColumns.length > 0 && (
-              <div className="bg-white shadow-lg rounded-xl p-6 flex flex-col h-full min-h-[220px] border border-gray-200">
+              <div className="bg-white rounded-xl p-6 flex flex-col h-full min-h-[220px] border border-gray-200">
                 <h3 className="text-lg font-semibold mb-4 text-gray-900">Low-Value Columns (&gt;30% missing)</h3>
                 <ul className="list-disc ml-5 text-sm flex-1 space-y-1">
                   {generateDataQualitySummary(modifiedHeaders, processedData).lowValueColumns.map((col) => (
@@ -1055,41 +1361,69 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
                 </ul>
               </div>
             )}
-
-            {aiCurrencyColumns.length > 0 && (
-              <div className="bg-white shadow-lg rounded-xl p-6 flex flex-col h-full min-h-[220px] border border-gray-200">
-                <h3 className="text-lg font-semibold mb-4 text-gray-900">💰 Currency Columns Detected</h3>
-                <ul className="list-disc ml-5 text-sm flex-1">
-                    {aiCurrencyColumns.map((col, idx) => {
-                      if (typeof col === "string") {
-                        return (
-                          <li key={col}>
-                            {col}
-                          </li>
-                        )
-                      } else if (col && typeof col === "object" && "name" in col) {
-                        return (
-                          <li key={col.name ?? idx}>
-                            {col.name}
-                            {col.currency ? (
-                              <span className="text-xs text-muted-foreground ml-1">
-                                ({col.currency})
-                              </span>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">
-                                (col.currency)
-                              </span>
-                            )}
-                          </li>
-                        )
-                      } else {
-                        return null
-                      }
-                    })}
-                </ul>
-              </div>
-            )}
           </div>
+
+          {/* Currency Columns Management */}
+            {aiCurrencyColumns.length > 0 && (
+            <div className="bg-white rounded-xl p-6 mb-3 border border-gray-200">
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xl font-bold text-black flex items-center gap-2">
+                    <DollarSign className="h-5 w-5 text-green-600" />
+                    Currency Columns Management
+                  </h3>
+                  <span className="text-sm text-gray-600">
+                    {aiCurrencyColumns.length} column(s) detected
+                  </span>
+                </div>
+                <p className="text-sm text-gray-600 mt-2">
+                  These currency columns will be automatically cleaned (removed currency symbols) for better data analysis.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-lg p-4 bg-white">
+                  <div className="space-y-2">
+                    {aiCurrencyColumns.map((col, idx) => {
+                      const column = typeof col === "string" ? col : (col && typeof col === "object" && "name" in col ? col.name : "")
+                      const currency = typeof col === "string" ? "USD" : (col && typeof col === "object" && "currency" in col ? col.currency : "USD")
+                      const sampleValue = processedData.find(row => row[column])?.[column] || "N/A"
+                      const stats = getColumnStats(column)
+                      
+                        return (
+                        <div
+                          key={column || idx}
+                          className="flex items-center justify-between p-3 rounded-lg border border-green-200 bg-green-50"
+                        >
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium text-black">{column}</p>
+                              <span className="text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-700">
+                                {currency}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                              <span>{stats.uniqueValues} unique</span>
+                              <span>•</span>
+                              <span>{stats.missingCount} missing ({stats.missingPercentage}%)</span>
+                              <span>•</span>
+                              <span className="capitalize">{stats.dataType}</span>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                              Sample: {String(sampleValue).substring(0, 50)}{String(sampleValue).length > 50 ? "..." : ""}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-green-600 font-medium">Will be cleaned</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+              </div>
+          </div>
+              </div>
+            </div>
+          )}
           </div>
         </div>
       )}
@@ -1263,24 +1597,29 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
               </div>
             )}
 
-            {/* Preview Section - First 20 Rows */}
-            {processedData.length > 0 && (
-              <div className="flex flex-col p-4 bg-white rounded-lg shadow mt-4 w-full">
-                <h3 className="font-semibold mb-2 border-b border-gray-300 pb-1">Preview (First 20 Rows)</h3>
-                <div className="max-h-[600px] overflow-auto">
-                  <table className="min-w-full table-auto text-sm border-collapse">
+            {/* Preprocessed Data Preview */}
+            {isDataProcessed && processedData.length > 0 && modifiedHeaders.length > 0 && (
+              <div className="bg-white rounded-xl p-6 border border-gray-200 mt-6">
+                <h3 className="text-lg font-semibold mb-4 text-gray-900">Final Preprocessed Data Preview</h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  This is the final data after preprocessing. Privacy columns (URLs, emails, phone numbers, addresses, names) have been removed, currency columns have been cleaned and labeled with currency codes (e.g., "Price (USD)"), and date columns have been split into year, month, and day components.
+                </p>
+                <div className="overflow-x-auto max-h-[500px] overflow-y-auto border border-gray-200 rounded-lg">
+                  <table className="min-w-full table-auto text-sm">
                     <thead className="bg-gray-100 sticky top-0">
                       <tr>
                         {modifiedHeaders.map((header) => (
-                          <th key={header} className="px-2 py-1 text-left">{header}</th>
+                          <th key={header} className="px-3 py-2 border text-left font-semibold">
+                            {header}
+                          </th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {processedData.slice(0, 20).map((row, idx) => (
-                        <tr key={idx} className={idx % 2 === 0 ? "bg-gray-50" : ""}>
+                        <tr key={idx} className={idx % 2 === 0 ? "bg-gray-50" : "bg-white"}>
                           {modifiedHeaders.map((header) => (
-                            <td key={header} className="px-2 py-1">
+                            <td key={header} className="px-3 py-2 border text-gray-700">
                               {row[header] ?? ""}
                             </td>
                           ))}
@@ -1288,6 +1627,11 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
                       ))}
                     </tbody>
                   </table>
+                  {processedData.length > 20 && (
+                    <p className="text-sm text-gray-500 mt-2 text-center p-2">
+                      Showing first 20 rows of {processedData.length} total rows
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -1297,6 +1641,33 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
         </div>
       )}
 
+      {/* Preprocess Confirmation Dialog */}
+      <AlertDialog open={preprocessConfirmDialog} onOpenChange={setPreprocessConfirmDialog}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+              </div>
+              <AlertDialogTitle className="text-xl">Confirm Data Preprocessing</AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="text-base pt-2">
+              <p className="mb-3">
+                Once you proceed to the next step, you will <strong>not be able to revert</strong> the preprocessing changes.
+              </p>
+              <p>
+                The data will be permanently modified according to the selected preprocessing options.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-0">
+            <AlertDialogCancel className="border-gray-300">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmPreprocess} className="bg-black hover:bg-gray-800 text-white">
+              Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -122,8 +122,9 @@ export async function POST(req: Request) {
     console.log(`Sample data sent to OpenAI: ${sampleRows.length} rows`);
 
     // Analyze column values to help OpenAI understand data structure
-    const columnAnalysis = analyzeColumnValues(sampleRows, headers);
-    console.log("Column analysis:", columnAnalysis);
+    // IMPORTANT: Use ALL rows for unique values calculation, not just sample rows
+    const columnAnalysis = analyzeColumnValues(filteredRows, headers);
+    console.log("Column analysis (calculated from ALL rows):", columnAnalysis);
 
     const preview = sampleRows.map((row, i) => `${i + 1}. ${JSON.stringify(row)}`).join("\n");
 
@@ -335,6 +336,9 @@ export async function POST(req: Request) {
     - Use meaningful business column names in results
     - Order by count/total DESC for better visualization`;
 
+    // TEMPORARILY DISABLED: OpenAI API call for manual inspection
+    // TODO: Re-enable after manual inspection
+    /*
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -353,6 +357,12 @@ export async function POST(req: Request) {
 
     const rawResponse = completion.choices[0]?.message?.content ?? "{}";
     console.log("OpenAI KPI Analysis raw response:", rawResponse);
+    */
+    
+    // Temporary: Return mock response for manual inspection
+    console.log("⚠️ OpenAI API call is TEMPORARILY DISABLED for manual inspection");
+    console.log("Column analysis with unique values from ALL rows:", JSON.stringify(columnAnalysis, null, 2));
+    const rawResponse = "{}";
 
     let parsed: OpenAIKPIAnalysis;
     try {
