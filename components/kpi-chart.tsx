@@ -205,6 +205,11 @@ export function KPIChart({
     if ((chartType === 'line' || chartType === 'area') && yAxisResults.length < 3) {
       console.log(`⚠️ Converting ${chartType} chart to bar chart: Only ${yAxisResults.length} X-axis values (requires >= 3)`);
       setActualChartType('bar');
+    } 
+    // Enforce rule: Pie/Donut charts require <= 15 values, otherwise use bar chart
+    else if ((chartType === 'pie' || chartType === 'donut') && yAxisResults.length > 15) {
+      console.log(`⚠️ Converting ${chartType} chart to bar chart: ${yAxisResults.length} values (pie/donut charts require ≤15 values)`);
+      setActualChartType('bar');
     } else {
       setActualChartType(chartType);
     }
@@ -609,12 +614,17 @@ export function KPIChart({
   // Ensure table data is available
   const finalTableData = tableData.length > 0 ? tableData : (data && Array.isArray(data) ? data : [])
   
-  // Final validation: Enforce line chart rule based on actual data
+  // Final validation: Enforce chart type rules based on actual data
   let displayChartType = actualChartType;
   if (finalChartData && finalChartData.labels) {
     const uniqueLabels = finalChartData.labels.length;
     if ((actualChartType === 'line' || actualChartType === 'area') && uniqueLabels < 3) {
       console.log(`⚠️ Final validation: Converting ${actualChartType} to bar chart (${uniqueLabels} < 3 labels)`);
+      displayChartType = 'bar';
+    }
+    // Enforce pie/donut chart rule: must have ≤15 values
+    if ((actualChartType === 'pie' || actualChartType === 'donut') && uniqueLabels > 15) {
+      console.log(`⚠️ Final validation: Converting ${actualChartType} to bar chart (${uniqueLabels} > 15 labels, pie/donut requires ≤15)`);
       displayChartType = 'bar';
     }
   }

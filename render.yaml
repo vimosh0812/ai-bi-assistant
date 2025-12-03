@@ -22,9 +22,6 @@ services:
       # Payment Processing
       - key: STRIPE_SECRET_KEY
         sync: false
-      # File Storage
-      - key: VERCEL_BLOB_READ_WRITE_TOKEN
-        sync: false
       # Tableau Server Configuration
       - key: TABLEAU_SERVER_URL
         sync: false

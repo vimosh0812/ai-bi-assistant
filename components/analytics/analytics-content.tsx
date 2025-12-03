@@ -13,6 +13,7 @@ import { KPIChart } from "@/components/kpi-chart";
 import { CSVChatbot } from "@/components/csv-chatbot";
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { BarGraphLoader } from "@/components/ui/bar-graph-loader";
 
 interface PublishResponse {
   success: boolean;
@@ -381,8 +382,9 @@ export default function FileAnalyticsPage() {
   if (isLoading) {
     return (
       <div className="container mx-auto p-6">
-        <div className="flex items-center justify-center h-[60vh]">
-          <p className="text-gray-600">Loading...</p>
+        <div className="flex flex-col items-center justify-center h-[60vh] gap-4">
+          <BarGraphLoader barCount={8} height={120} />
+          <p className="text-gray-600 text-sm">Loading file content...</p>
         </div>
       </div>
     );
@@ -526,7 +528,10 @@ export default function FileAnalyticsPage() {
               </tbody>
             </table>
           ) : (
-            <p className="p-4 text-gray-500">Loading CSV content...</p>
+            <div className="flex flex-col items-center justify-center p-8 gap-4">
+              <BarGraphLoader barCount={6} height={100} />
+              <p className="text-gray-500 text-sm">Loading CSV content...</p>
+            </div>
           )}
         </div>
       )}

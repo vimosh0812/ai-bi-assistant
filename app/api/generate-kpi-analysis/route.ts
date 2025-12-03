@@ -252,11 +252,14 @@ export async function POST(req: Request) {
     - Quarter SQL: GROUP BY year, CASE WHEN month <= 3 THEN 1 WHEN month <= 6 THEN 2 WHEN month <= 9 THEN 3 ELSE 4 END
     - Quarter aggregation helps identify seasonal patterns and business cycles
     
-    PIE CHART RULES:
-    - For CATEGORICAL columns (≤10 unique values): Generate PIE or DOUGHNUT charts
+    PIE CHART RULES (STRICT):
+    - CRITICAL: Only generate PIE or DOUGHNUT charts if there are ≤15 unique values
+    - If there are MORE than 15 unique values, DO NOT generate pie/donut charts - use BAR chart instead
+    - For CATEGORICAL columns (≤15 unique values): Generate PIE or DOUGHNUT charts
     - Focus on business context: distribution, market share, composition
     - Use COUNT() or SUM() for pie chart values
     - Create meaningful business titles
+    - REMEMBER: Count the number of unique values before choosing pie/donut chart type. If > 15, use BAR chart.
     
     IMPORTANT: Only generate KPIs that are actually applicable to this dataset. Do not force irrelevant metrics.
     
@@ -266,7 +269,7 @@ export async function POST(req: Request) {
     3. The most appropriate chart type based on data types:
        - BAR: categorical X-axis + continuous Y-axis, OR when X-axis has < 3 unique values
        - LINE: date/time X-axis + continuous Y-axis, BUT ONLY if X-axis has >= 3 unique values
-       - PIE/DOUGHNUT: categorical data with counts/percentages
+       - PIE/DOUGHNUT: categorical data with counts/percentages, BUT ONLY if ≤15 unique values (if >15, use BAR chart)
        - SCATTER: two continuous variables
        - CRITICAL: Before choosing LINE chart, verify X-axis will have >= 3 unique values. If not, use BAR chart.
     4. Chart configuration with proper xAxis and yAxis column names
@@ -296,11 +299,14 @@ export async function POST(req: Request) {
     - Generate line charts for time-series data ONLY if there are >= 3 unique X-axis values
     - If time-series data has < 3 unique X-axis values, use BAR chart instead
     
-    PIE CHART REQUIREMENTS:
-    - For CATEGORICAL columns (≤10 unique values), generate PIE or DOUGHNUT charts
+    PIE CHART REQUIREMENTS (STRICT):
+    - CRITICAL RULE: Only generate PIE or DOUGHNUT charts if there are ≤15 unique values
+    - If there are MORE than 15 unique values, DO NOT generate pie/donut charts - use BAR chart instead
+    - For CATEGORICAL columns (≤15 unique values), generate PIE or DOUGHNUT charts
     - Focus on business context: market share, distribution, composition
     - Examples: Product category distribution, Customer segment breakdown, Region analysis
     - Use meaningful business titles and descriptions
+    - ALWAYS verify the count of unique values before generating pie/donut charts
     
     Generate 6 relevant KPIs based on what makes sense for this specific dataset.
     Prioritize time-series analysis if date columns exist, and pie charts for categorical data.
@@ -404,7 +410,8 @@ export async function POST(req: Request) {
     - For categorical data: SELECT categorical_column, COUNT(*) as count FROM data GROUP BY categorical_column
     - For business context: SELECT category, SUM(value) as total FROM data GROUP BY category
     - Use meaningful business column names in results
-    - Order by count/total DESC for better visualization`;
+    - Order by count/total DESC for better visualization
+    - CRITICAL: Before generating pie/donut chart, verify the result will have ≤15 rows. If more than 15 rows, use BAR chart instead`;
 
     let completion;
     try {
