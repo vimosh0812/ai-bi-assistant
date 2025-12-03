@@ -54,75 +54,122 @@ export default function FileAnalyticsPage() {
   const [deletingMetricIndex, setDeletingMetricIndex] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showChatbot, setShowChatbot] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Fetch file details and CSV content
   useEffect(() => {
+    // Normalize params (Next.js can return arrays for dynamic routes)
+    const normalizedFileId = Array.isArray(fileId) ? fileId[0] : fileId;
+    const normalizedFolderId = Array.isArray(folderId) ? folderId[0] : folderId;
+
+    // Reset state when params change
+    setIsLoading(true);
+    setCsvData([]);
+    setFileDetails(null);
+    setFile(null);
+    setResponse(null);
+    setError(null);
+    setKpiAnalysis(null);
+    setHasKpiAnalysis(false);
+    setShowKpiView(false);
+    setFolderName("");
+
+    if (!normalizedFileId || !normalizedFolderId) {
+      setIsLoading(false);
+      return;
+    }
+
     const fetchFile = async () => {
-      const { data, error } = await supabase
-        .from("files")
-        .select("*")
-        .eq("id", fileId)
-        .single();
+      try {
+        const { data, error } = await supabase
+          .from("files")
+          .select("*")
+          .eq("id", normalizedFileId)
+          .single();
 
-      if (error) return console.error(error);
-      setFileDetails(data);
-      setHasKpiAnalysis(data.has_kpi_analysis || false);
+        if (error) {
+          console.error("Error fetching file:", error);
+          setError("Failed to load file details");
+          setIsLoading(false);
+          return;
+        }
 
-      // Fetch folder name for breadcrumb
-      const { data: folderData, error: folderError } = await supabase
-        .from("folders")
-        .select("name")
-        .eq("id", folderId)
-        .single();
+        setFileDetails(data);
+        setHasKpiAnalysis(data.has_kpi_analysis || false);
 
-      if (!folderError && folderData) {
-        setFolderName(folderData.name);
-      }
+        // Fetch folder name for breadcrumb
+        const { data: folderData, error: folderError } = await supabase
+          .from("folders")
+          .select("name")
+          .eq("id", normalizedFolderId)
+          .single();
 
-      if (data.connected_to_tableau && data.embed_url) {
-        setResponse({
-          success: true,
-          message: "Already connected",
-          data: {
-            workbook: {
-              id: data.tableau_workbook_id,
-              name: data.file_name,
-              contentUrl: "",
-              webpageUrl: "",
-              sheetUrl: data.embed_url,
-              showTabs: true,
-              size: 0,
-              createdAt: "",
-              updatedAt: "",
-              encryptExtracts: false,
+        if (!folderError && folderData) {
+          setFolderName(folderData.name);
+        }
+
+        if (data.connected_to_tableau && data.embed_url) {
+          setResponse({
+            success: true,
+            message: "Already connected",
+            data: {
+              workbook: {
+                id: data.tableau_workbook_id,
+                name: data.file_name,
+                contentUrl: "",
+                webpageUrl: "",
+                sheetUrl: data.embed_url,
+                showTabs: true,
+                size: 0,
+                createdAt: "",
+                updatedAt: "",
+                encryptExtracts: false,
+              },
             },
-          },
-        });
-      } else {
-        fetchCsv(data.storage_path);
-      }
+          });
+          setIsLoading(false);
+        } else {
+          await fetchCsv(data.storage_path);
+        }
 
-      // Check if KPI analysis exists
-      if (data.has_kpi_analysis) {
-        fetchKpiAnalysis();
+        // Check if KPI analysis exists
+        if (data.has_kpi_analysis) {
+          await fetchKpiAnalysis();
+        }
+      } catch (error) {
+        console.error("Error in fetchFile:", error);
+        setError("Failed to load file");
+        setIsLoading(false);
       }
     };
 
     const fetchCsv = async (path: string) => {
-      const { data, error } = await supabase.storage.from("csv-files").download(path);
-      if (error) return console.error(error);
+      try {
+        const { data, error } = await supabase.storage.from("csv-files").download(path);
+        if (error) {
+          console.error("Error downloading CSV:", error);
+          setError("Failed to load CSV data");
+          setIsLoading(false);
+          return;
+        }
 
-      const text = await data.text();
-      const parsed = Papa.parse(text, { header: true });
-      setCsvData(parsed.data);
-      const filename = path.split("/").pop() || "data.csv";
-      setFile(new File([text], filename, { type: "csv" }));
-      setPublishType("datasource");
+        const text = await data.text();
+        const parsed = Papa.parse(text, { header: true });
+        setCsvData(parsed.data);
+        const filename = path.split("/").pop() || "data.csv";
+        setFile(new File([text], filename, { type: "csv" }));
+        setPublishType("datasource");
+        setIsLoading(false);
+      } catch (error) {
+        console.error("Error parsing CSV:", error);
+        setError("Failed to parse CSV data");
+        setIsLoading(false);
+      }
     };
 
     const fetchKpiAnalysis = async () => {
       try {
-        const response = await fetch(`/api/get-kpi-analysis?fileId=${fileId}`);
+        const response = await fetch(`/api/get-kpi-analysis?fileId=${normalizedFileId}`);
         const data = await response.json();
         
         if (data.success && data.kpiAnalysis) {
@@ -134,7 +181,7 @@ export default function FileAnalyticsPage() {
     };
 
     fetchFile();
-  }, [fileId]);
+  }, [fileId, folderId, supabase]);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -297,6 +344,20 @@ export default function FileAnalyticsPage() {
 
   // Remove the generateEmbedCode function as we'll use the TableauViz component instead
 
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="flex items-center justify-center h-[60vh]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading file data...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto p-6">
       {/* Breadcrumb Navigation */}
@@ -315,7 +376,7 @@ export default function FileAnalyticsPage() {
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink 
-                href={`/dashboard/${folderId}`}
+                href={`/dashboard/${Array.isArray(folderId) ? folderId[0] : folderId}`}
                 className="hover:text-foreground"
               >
                 {folderName || "Folder"}
@@ -336,7 +397,7 @@ export default function FileAnalyticsPage() {
           {/* <Button
             variant="outline"
             size="sm"
-            onClick={() => router.push(`/dashboard/${folderId}`)}
+            onClick={() => router.push(`/dashboard/${Array.isArray(folderId) ? folderId[0] : folderId}`)}
             className="flex items-center gap-2"
           >
             <ArrowLeft className="h-4 w-4" />

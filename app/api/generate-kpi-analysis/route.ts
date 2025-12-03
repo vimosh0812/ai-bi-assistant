@@ -301,9 +301,9 @@ export async function POST(req: Request) {
             "xAxis": "[categorical_column_name]",
             "yAxis": "[continuous_column_name]", 
             "groupBy": "[categorical_column_name]",
-               "colors": ["#45B7D1", "#96CEB4", "#FF6B6B", "#4ECDC4"],
             "dataLabels": true
           },
+          NOTE: Do NOT include "colors" in chartConfig - colors are automatically applied by the system based on chart type.
           "category": "financial|operational|customer|growth|efficiency|churn|roi|otif"
         }
       ],
@@ -427,7 +427,6 @@ export async function POST(req: Request) {
               title: "Data Overview",
               xAxis: "label",
               yAxis: "count",
-              colors: ["#3B82F6"],
               dataLabels: true
             },
             category: "operational"

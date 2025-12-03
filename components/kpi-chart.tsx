@@ -198,9 +198,8 @@ export function KPIChart({
       } catch (err) {
         console.error("Error loading chart data:", err);
         setError("Failed to load chart data");
-        // Fallback to original data
-        const fallbackData = generateChartDataFromOriginal();
-        setChartData(fallbackData);
+        // Don't use fallback dummy data - keep loading state or show error
+        setChartData(null);
         // Set table data from original data if available
         if (data && Array.isArray(data) && data.length > 0) {
           setTableData(data);
@@ -220,15 +219,26 @@ export function KPIChart({
     }
 
     // Different color palettes for different chart types
-    // OLAP color palette for bar and line charts
-    const olapColors = ['#45B7D1', '#96CEB4', '#FF6B6B', '#4ECDC4'];
-    const pieColors = [
-      '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', 
-      '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
-    ];
+    // Color palette for bar charts - choose random color
+    const barColorOptions = ['#f18585', '#f49c9c', '#f6aeae', '#f8cacf', '#d5a8f2', '#cb90f1', '#c174f2'];
+    // Color palette for line charts - choose random color
+    const lineColorOptions = ['#f5cb00', '#f6d220', '#f8d840', '#f9df60', '#fae580'];
+    // Color palette for pie and donut charts - use from light to dark
+    const pieColors = ['#03045e', '#023e8a', '#0077b6', '#0096c7', '#00b4d8', '#48cae4', '#90e0ef', '#ade8f4', '#caf0f8'];
     
-    // Use OLAP colors for bar and line charts, pie colors for pie/donut
-    const colors = config.colors || (chartType === 'pie' || chartType === 'donut' ? pieColors : olapColors);
+    // Use different colors based on chart type
+    let colors;
+    if (chartType === 'pie' || chartType === 'donut') {
+      colors = config.colors || pieColors;
+    } else if (chartType === 'line' || chartType === 'area') {
+      // Choose random color from line color options
+      const randomLineColor = lineColorOptions[Math.floor(Math.random() * lineColorOptions.length)];
+      colors = config.colors || [randomLineColor];
+    } else {
+      // Choose random color from bar color options
+      const randomBarColor = barColorOptions[Math.floor(Math.random() * barColorOptions.length)];
+      colors = config.colors || [randomBarColor];
+    }
     
     // For Chart.js, we need to create an array of objects where each object represents a data point
     // Each object should have properties for the X-axis value and Y-axis value
@@ -545,29 +555,31 @@ export function KPIChart({
 
   // Fallback to original data processing
   const generateChartDataFromOriginal = () => {
-    // OLAP color palette for bar and line charts
-    const olapColors = ['#45B7D1', '#96CEB4', '#FF6B6B', '#4ECDC4'];
-    const pieColors = [
-      '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', 
-      '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
-    ];
+    // Color palette for bar charts - choose random color
+    const barColorOptions = ['#f18585', '#f49c9c', '#f6aeae', '#f8cacf', '#d5a8f2', '#cb90f1', '#c174f2'];
+    // Color palette for line charts - choose random color
+    const lineColorOptions = ['#f5cb00', '#f6d220', '#f8d840', '#f9df60', '#fae580'];
+    // Color palette for pie and donut charts - use from light to dark
+    const pieColors = ['#03045e', '#023e8a', '#0077b6', '#0096c7', '#00b4d8', '#48cae4', '#90e0ef', '#ade8f4', '#caf0f8'];
     
     if (!data || !Array.isArray(data) || data.length === 0) {
-      return {
-        labels: ['Sample 1', 'Sample 2', 'Sample 3', 'Sample 4', 'Sample 5'],
-        datasets: [{
-          label: chartConfig.title || title,
-          data: [65, 59, 80, 81, 56],
-          backgroundColor: olapColors[0],
-          borderColor: olapColors[0],
-          borderWidth: 1,
-          fill: chartType === 'area',
-        }],
-      }
+      // Return null to show skeleton loading instead of dummy data
+      return null;
     }
 
-    // Use OLAP colors for bar and line charts, pie colors for pie/donut
-    const colors = chartConfig.colors || (chartType === 'pie' || chartType === 'donut' ? pieColors : olapColors)
+    // Use different colors based on chart type
+    let colors;
+    if (chartType === 'pie' || chartType === 'donut') {
+      colors = chartConfig.colors || pieColors;
+    } else if (chartType === 'line' || chartType === 'area') {
+      // Choose random color from line color options
+      const randomLineColor = lineColorOptions[Math.floor(Math.random() * lineColorOptions.length)];
+      colors = chartConfig.colors || [randomLineColor];
+    } else {
+      // Choose random color from bar color options
+      const randomBarColor = barColorOptions[Math.floor(Math.random() * barColorOptions.length)];
+      colors = chartConfig.colors || [randomBarColor];
+    }
     
     // Simple fallback: use first 10 rows
     const safeData = Array.isArray(data) ? data : [];
@@ -775,6 +787,38 @@ export function KPIChart({
       return (
         <div className="h-64 flex items-center justify-center">
           <div className="text-sm text-red-500">Error: {error}</div>
+        </div>
+      )
+    }
+
+    // If no chart data, show skeleton loading
+    if (!finalChartData) {
+      return (
+        <div className="h-64 flex items-center justify-center">
+          <div className="w-full space-y-4">
+            {/* Skeleton for chart title */}
+            <div className="h-4 bg-gray-200 rounded w-1/3 mx-auto animate-pulse"></div>
+            
+            {/* Skeleton for chart area */}
+            <div className="h-48 bg-gray-100 rounded-lg flex items-end justify-center space-x-2 p-4">
+              {/* Skeleton bars for bar chart */}
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div 
+                  key={i} 
+                  className="bg-gray-300 rounded-t animate-pulse"
+                  style={{ 
+                    height: `${Math.random() * 60 + 20}%`, 
+                    width: '12%' 
+                  }}
+                ></div>
+              ))}
+            </div>
+            
+            {/* Skeleton for loading text */}
+            <div className="text-center">
+              <div className="h-3 bg-gray-200 rounded w-1/4 mx-auto animate-pulse"></div>
+            </div>
+          </div>
         </div>
       )
     }
