@@ -576,84 +576,85 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
 
       {/* Step 1: File Upload */}
       {currentStep === 1 && (
-        <div className="flex flex-col flex-1 overflow-hidden">
-          {/* Upload and Form section - Two columns side by side */}
-          <div className="flex-1 p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-6xl mx-auto h-full">
-              {/* Left Column: File Upload */}
-              <div className="flex flex-col">
-                <div
-                  className={cn(
-                    "border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors flex-1 flex flex-col justify-center items-center",
-                    dragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25",
-                    file ? "border-green-500 bg-green-50" : ""
-                  )}
-                  onDragEnter={handleDrag}
-                  onDragLeave={handleDrag}
-                  onDragOver={handleDrag}
-                  onDrop={handleDrop}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".csv"
-                    onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
-                    className="hidden"
-                  />
-                  {file ? (
-                    <div className="flex flex-col items-center justify-center space-y-2">
-                      <FileText className="h-12 w-12 text-green-600" />
-                      <div className="text-center">
-                        <p className="font-medium text-lg">{file.name}</p>
-                        <p className="text-sm text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
+        <div className="flex flex-col flex-1 overflow-hidden bg-white">
+          <div className="flex-1 overflow-y-auto p-6">
+            {/* Row 1: Upload and Form section - Two columns side by side */}
+            <div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-6xl mx-auto">
+                {/* Left Column: File Upload */}
+                <div className="flex flex-col">
+                  <div
+                    className={cn(
+                      "border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors flex flex-col justify-center items-center min-h-[250px]",
+                      dragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25",
+                      file ? "border-green-500 bg-green-50" : ""
+                    )}
+                    onDragEnter={handleDrag}
+                    onDragLeave={handleDrag}
+                    onDragOver={handleDrag}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".csv"
+                      onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
+                      className="hidden"
+                    />
+                    {file ? (
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <FileText className="h-12 w-12 text-green-600" />
+                        <div className="text-center">
+                          <p className="font-medium text-lg">{file.name}</p>
+                          <p className="text-sm text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
-                      <div>
-                        <p className="text-sm text-muted-foreground">Drop your CSV file here</p>
-                        <p className="text-xs text-muted-foreground mt-1">or click to browse</p>
+                    ) : (
+                      <div className="space-y-3">
+                        <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
+                        <div>
+                          <p className="text-sm text-muted-foreground">Drop your CSV file here</p>
+                          <p className="text-xs text-muted-foreground mt-1">or click to browse</p>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Right Column: File Name and Description */}
-              <div className="flex flex-col gap-6">
-                <div className="grid gap-2">
-                  <Label htmlFor="name">File Name</Label>
-                  <Input
-                    id="name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Enter file name"
-                    required
-                    className="h-12"
-                  />
+                    )}
+                  </div>
                 </div>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="description">Meta Data</Label>
-                  <Textarea
-                    id="description"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Enter file description (optional)"
-                    rows={4}
-                    className="resize-none text-sm"
-                  />
+                {/* Right Column: File Name and Description */}
+                <div className="flex flex-col gap-6">
+                  <div className="grid gap-2">
+                    <Label htmlFor="name">File Name</Label>
+                    <Input
+                      id="name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Enter file name"
+                      required
+                      className="h-12"
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="description">Meta Data</Label>
+                    <Textarea
+                      id="description"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="Enter file description (optional)"
+                      rows={4}
+                      className="resize-none text-sm"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Preview section - 70% height */}
-          <div className="flex-[7] p-4 bg-white border-t flex flex-col">
-            <h3 className="font-semibold mb-2">Preview (First 20 Rows)</h3>
-            <div className="max-h-[400px] overflow-auto border rounded flex-1">
+            {/* Row 2: Preview section */}
+            <div className="mt-6 bg-white border-t pt-6 flex flex-col">
+              <h3 className="font-semibold mb-2">Preview (First 20 Rows)</h3>
+              <div className="max-h-[300px] overflow-auto border rounded">
               {processedData.length > 0 ? (
                 <table className="min-w-full table-auto text-sm">
                   <thead className="bg-gray-100 sticky top-0">
@@ -682,6 +683,7 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
                   <span>No data loaded. Please upload a CSV file to preview.</span>
                 </div>
               )}
+              </div>
             </div>
           </div>
         </div>
@@ -1164,7 +1166,8 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
 
       {/* Step 3: Preprocessed Data Dashboard */}
       {currentStep === 3 && (
-        <div className="flex flex-col flex-1 overflow-auto bg-white p-6">
+        <div className="flex flex-col flex-1 overflow-hidden bg-white">
+          <div className="flex-1 overflow-y-auto p-6">
           
           {/* Upload Button on Top */}
           <div className="flex justify-end mb-6">
@@ -1264,7 +1267,7 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
             {processedData.length > 0 && (
               <div className="flex flex-col p-4 bg-white rounded-lg shadow mt-4 w-full">
                 <h3 className="font-semibold mb-2 border-b border-gray-300 pb-1">Preview (First 20 Rows)</h3>
-                <div className="max-h-[400px] overflow-auto">
+                <div className="max-h-[600px] overflow-auto">
                   <table className="min-w-full table-auto text-sm border-collapse">
                     <thead className="bg-gray-100 sticky top-0">
                       <tr>
@@ -1289,6 +1292,7 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
               </div>
             )}
 
+          </div>
           </div>
         </div>
       )}
