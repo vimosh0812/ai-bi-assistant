@@ -13,7 +13,19 @@ async function executeAndStoreKPIQueries(
   kpiAnalysisId: string
 ): Promise<any[]> {
   const supabase = await createClient();
-  const executedResults = [];
+  const executedResults: Array<{
+    metricName: string;
+    success: boolean;
+    error?: string;
+    yAxisResults?: any[] | null;
+    xAxisResults?: any[] | null;
+    executionData?: any;
+  }> = [];
+
+  if (!kpiAnalysis?.metrics || !Array.isArray(kpiAnalysis.metrics) || kpiAnalysis.metrics.length === 0) {
+    console.warn("⚠️ No metrics to execute in KPI analysis");
+    return executedResults;
+  }
 
   console.log(`Starting execution of ${kpiAnalysis.metrics.length} KPI queries on table: ${tableName}`);
 
@@ -138,10 +150,22 @@ async function executeAndStoreKPIQueries(
 
 export async function POST(request: NextRequest) {
   try {
-    const { fileId, kpiAnalysis } = await request.json();
+    let requestBody;
+    try {
+      requestBody = await request.json();
+    } catch (jsonError) {
+      console.error("Failed to parse request body:", jsonError);
+      return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
+    }
+    
+    const { fileId, kpiAnalysis } = requestBody;
     
     if (!kpiAnalysis) {
       return NextResponse.json({ error: "Missing kpiAnalysis" }, { status: 400 });
+    }
+    
+    if (!kpiAnalysis.metrics || !Array.isArray(kpiAnalysis.metrics)) {
+      return NextResponse.json({ error: "Invalid kpiAnalysis: metrics must be an array" }, { status: 400 });
     }
 
     // If no fileId provided, we'll store it as a preview analysis
@@ -176,8 +200,8 @@ export async function POST(request: NextRequest) {
       .select()
       .single();
 
-    if (error) {
-      console.error("Error storing KPI analysis:", error);
+    if (error || !data) {
+      console.error("Error storing KPI analysis:", error || "No data returned");
       return NextResponse.json({ error: "Failed to store KPI analysis" }, { status: 500 });
     }
 
@@ -211,7 +235,7 @@ export async function POST(request: NextRequest) {
         // Execute all SQL queries from the KPI analysis and store results
         const executedResults = await executeAndStoreKPIQueries(
           fileData.table_name,
-          fileData.original_headers,
+          fileData.original_headers || [],
           kpiAnalysis,
           data.id
         );
@@ -238,19 +262,25 @@ export async function POST(request: NextRequest) {
               .map(r => r.metricName)
           );
           
-          // Filter metrics to keep only successful ones
-          const originalMetricsCount = kpiAnalysis.metrics.length;
-          kpiAnalysis.metrics = kpiAnalysis.metrics.filter((metric: any) => 
+          // Filter metrics to keep only successful ones - create new object instead of mutating
+          const originalMetricsCount = kpiAnalysis.metrics?.length || 0;
+          const filteredMetrics = (kpiAnalysis.metrics || []).filter((metric: any) => 
             successfulMetricNames.has(metric.name)
           );
           
-          console.log(`✅ Kept ${kpiAnalysis.metrics.length} successful metrics (removed ${originalMetricsCount - kpiAnalysis.metrics.length} failed)`);
+          // Create a new filtered KPI analysis object
+          const filteredKpiAnalysis = {
+            ...kpiAnalysis,
+            metrics: filteredMetrics
+          };
+          
+          console.log(`✅ Kept ${filteredMetrics.length} successful metrics (removed ${originalMetricsCount - filteredMetrics.length} failed)`);
           
           // Update the stored KPI analysis with only successful metrics
           const { error: updateAnalysisError } = await supabase
             .from("kpi_analyses")
             .update({
-              analysis_data: kpiAnalysis,
+              analysis_data: filteredKpiAnalysis,
               updated_at: new Date().toISOString()
             })
             .eq("id", data.id);
@@ -264,35 +294,44 @@ export async function POST(request: NextRequest) {
           // Delete ALL failed execution results from database (both stored and unstored)
           const failedMetricNames = executedResults
             .filter(r => !r.success)
-            .map(r => r.metricName);
+            .map(r => r.metricName)
+            .filter((name): name is string => Boolean(name));
           
           if (failedMetricNames.length > 0) {
-            // Delete by metric names (covers all failed results regardless of execution_success flag)
-            const { error: deleteError } = await supabase
-              .from("kpi_execution_results")
-              .delete()
-              .eq("kpi_analysis_id", data.id)
-              .in("metric_name", failedMetricNames);
-            
-            if (deleteError) {
-              console.warn("⚠️ Failed to delete failed execution results:", deleteError);
-            } else {
-              console.log(`✅ Deleted all execution results for ${failedMetricNames.length} failed metrics from database`);
+            try {
+              // Delete by metric names (covers all failed results regardless of execution_success flag)
+              const { error: deleteError } = await supabase
+                .from("kpi_execution_results")
+                .delete()
+                .eq("kpi_analysis_id", data.id)
+                .in("metric_name", failedMetricNames);
+              
+              if (deleteError) {
+                console.warn("⚠️ Failed to delete failed execution results:", deleteError);
+              } else {
+                console.log(`✅ Deleted all execution results for ${failedMetricNames.length} failed metrics from database`);
+              }
+            } catch (deleteErr) {
+              console.warn("⚠️ Error deleting failed execution results:", deleteErr);
             }
           }
           
           // Re-index successful execution results to be sequential (0, 1, 2...)
-          const successfulResults = executedResults.filter(r => r.success);
+          const successfulResults = executedResults.filter(r => r.success && r.executionData?.id);
           for (let newIndex = 0; newIndex < successfulResults.length; newIndex++) {
             const result = successfulResults[newIndex];
             if (result.executionData?.id) {
-              const { error: reindexError } = await supabase
-                .from("kpi_execution_results")
-                .update({ metric_index: newIndex })
-                .eq("id", result.executionData.id);
-              
-              if (reindexError) {
-                console.warn(`⚠️ Failed to re-index metric ${result.metricName}:`, reindexError);
+              try {
+                const { error: reindexError } = await supabase
+                  .from("kpi_execution_results")
+                  .update({ metric_index: newIndex })
+                  .eq("id", result.executionData.id);
+                
+                if (reindexError) {
+                  console.warn(`⚠️ Failed to re-index metric ${result.metricName}:`, reindexError);
+                }
+              } catch (reindexErr) {
+                console.warn(`⚠️ Error re-indexing metric ${result.metricName}:`, reindexErr);
               }
             }
           }
@@ -306,24 +345,30 @@ export async function POST(request: NextRequest) {
         
         // Verify temporary table still exists and has data
         try {
-          const { data: verifyData, error: verifyError } = await supabase.rpc('exec_sql_with_result', {
-            query: `SELECT COUNT(*) as row_count FROM "${fileData.table_name}"`
-          });
-          
-          if (verifyError) {
-            console.warn("⚠️ Could not verify table data:", verifyError);
-          } else {
-            console.log(`🔍 Table verification: ${fileData.table_name} contains ${verifyData?.[0]?.row_count || 0} rows`);
-            
-            // Also check table structure
-            const { data: structureData, error: structureError } = await supabase.rpc('exec_sql_with_result', {
-              query: `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${fileData.table_name}' ORDER BY ordinal_position`
+          if (fileData.table_name) {
+            const { data: verifyData, error: verifyError } = await supabase.rpc('exec_sql_with_result', {
+              query: `SELECT COUNT(*) as row_count FROM "${fileData.table_name}"`
             });
             
-            if (structureError) {
-              console.warn("⚠️ Could not verify table structure:", structureError);
+            if (verifyError) {
+              console.warn("⚠️ Could not verify table data:", verifyError);
             } else {
-              console.log(`🏗️ Table structure:`, structureData?.slice(0, 5)); // Show first 5 columns
+              console.log(`🔍 Table verification: ${fileData.table_name} contains ${verifyData?.[0]?.row_count || 0} rows`);
+              
+              // Also check table structure
+              try {
+                const { data: structureData, error: structureError } = await supabase.rpc('exec_sql_with_result', {
+                  query: `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${fileData.table_name}' ORDER BY ordinal_position`
+                });
+                
+                if (structureError) {
+                  console.warn("⚠️ Could not verify table structure:", structureError);
+                } else {
+                  console.log(`🏗️ Table structure:`, structureData?.slice(0, 5)); // Show first 5 columns
+                }
+              } catch (structureErr) {
+                console.warn("⚠️ Table structure verification failed:", structureErr);
+              }
             }
           }
         } catch (verifyErr) {

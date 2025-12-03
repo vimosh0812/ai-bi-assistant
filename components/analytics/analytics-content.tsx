@@ -254,6 +254,12 @@ export default function FileAnalyticsPage() {
       }
 
       // Generate KPI analysis
+      console.log("🤖 [AI REQUEST] Generating KPI analysis...", {
+        headers: Object.keys(csvData[0] || {}),
+        rowCount: csvData.length,
+        fileId: fileDetails.id
+      });
+      
       const response = await fetch("/api/generate-kpi-analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -268,25 +274,53 @@ export default function FileAnalyticsPage() {
       try {
         data = await response.json();
       } catch (parseError) {
+        console.error("❌ [AI RESPONSE] Failed to parse JSON:", parseError);
         throw new Error(`Failed to parse server response: ${response.status} ${response.statusText}`);
       }
       
+      // Log full AI response for debugging
+      console.log("🤖 [AI RESPONSE] Full KPI Analysis Response:", {
+        status: response.status,
+        ok: response.ok,
+        data: data,
+        metricsCount: data?.metrics?.length || 0,
+        metrics: data?.metrics?.map((m: any) => ({
+          name: m.name,
+          chartType: m.chartType,
+          category: m.category,
+          sqlQuery: m.sqlQuery,
+          xAxisQuery: m.xAxisQuery
+        })) || []
+      });
+      
       if (!response.ok) {
+        console.error("❌ [AI RESPONSE] Server error:", {
+          status: response.status,
+          error: data?.error
+        });
         throw new Error(data?.error || `Server error: ${response.status}`);
       }
       
       if (data.error) {
+        console.error("❌ [AI RESPONSE] Error in response:", data.error);
         throw new Error(data.error);
       }
       
       if (!data || !data.metrics || !Array.isArray(data.metrics)) {
+        console.error("❌ [AI RESPONSE] Invalid response format:", data);
         throw new Error("Invalid KPI analysis response format");
       }
       
+      console.log("✅ [AI RESPONSE] Successfully received KPI analysis with", data.metrics.length, "metrics");
       setKpiAnalysis(data);
       
       // Store the KPI analysis
       try {
+        console.log("💾 [KPI EXECUTION] Storing KPI analysis and executing queries...", {
+          fileId: fileDetails.id,
+          metricsCount: data.metrics.length
+        });
+        
         const storeResponse = await fetch("/api/store-kpi-analysis", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -296,10 +330,31 @@ export default function FileAnalyticsPage() {
           }),
         });
         
+        let storeData;
+        try {
+          storeData = await storeResponse.json();
+        } catch (parseError) {
+          console.error("❌ [KPI EXECUTION] Failed to parse store response:", parseError);
+          throw parseError;
+        }
+        
+        // Log full execution response for debugging
+        console.log("💾 [KPI EXECUTION] Full Store/Execution Response:", {
+          status: storeResponse.status,
+          ok: storeResponse.ok,
+          success: storeData?.success,
+          kpiAnalysisId: storeData?.kpiAnalysisId,
+          message: storeData?.message,
+          error: storeData?.error,
+          fullResponse: storeData
+        });
+        
         if (storeResponse.ok) {
-          const storeData = await storeResponse.json();
-          
           if (storeData.success) {
+            console.log("✅ [KPI EXECUTION] Successfully stored and executed KPI analysis:", {
+              kpiAnalysisId: storeData.kpiAnalysisId,
+              metricsCount: data.metrics.length
+            });
             setHasKpiAnalysis(true);
             // Update file details
             setFileDetails((prev: any) => ({
@@ -307,12 +362,19 @@ export default function FileAnalyticsPage() {
               has_kpi_analysis: true,
               kpi_analysis_id: storeData.kpiAnalysisId
             }));
+          } else {
+            console.warn("⚠️ [KPI EXECUTION] Store response indicates failure:", storeData);
           }
         } else {
-          console.warn("Failed to store KPI analysis:", storeResponse.status);
+          console.error("❌ [KPI EXECUTION] Failed to store KPI analysis:", {
+            status: storeResponse.status,
+            statusText: storeResponse.statusText,
+            error: storeData?.error,
+            fullResponse: storeData
+          });
         }
       } catch (storeError) {
-        console.warn("Error storing KPI analysis:", storeError);
+        console.error("❌ [KPI EXECUTION] Error storing KPI analysis:", storeError);
         // Don't throw - KPI was generated successfully, just storage failed
       }
       

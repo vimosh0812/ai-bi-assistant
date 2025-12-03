@@ -339,7 +339,11 @@ export default function AnalyticsPage() {
   const generateKPIAnalysis = async () => {
     if (!rawData.length) return
     
-    console.log(`Generating KPI analysis for ${rawData.length} rows of data`);
+    console.log("🤖 [AI REQUEST] Generating KPI analysis...", {
+      rowCount: rawData.length,
+      headers: headers,
+      sampleData: rawData.slice(0, 2)
+    });
     console.log("Full dataset will be used for SQL execution, sample data for OpenAI analysis");
     
     setLoadingKPI(true)
@@ -352,12 +356,42 @@ export default function AnalyticsPage() {
           rows: rawData  // Full dataset sent to API
         }),
       })
-      const data = await res.json()
-      console.log("KPI Analysis response:", data)
+      
+      let data;
+      try {
+        data = await res.json();
+      } catch (parseError) {
+        console.error("❌ [AI RESPONSE] Failed to parse JSON:", parseError);
+        throw parseError;
+      }
+      
+      // Log full AI response for debugging
+      console.log("🤖 [AI RESPONSE] Full KPI Analysis Response:", {
+        status: res.status,
+        ok: res.ok,
+        data: data,
+        metricsCount: data?.metrics?.length || 0,
+        metrics: data?.metrics?.map((m: any) => ({
+          name: m.name,
+          chartType: m.chartType,
+          category: m.category,
+          sqlQuery: m.sqlQuery,
+          xAxisQuery: m.xAxisQuery
+        })) || []
+      });
+      
+      if (!res.ok) {
+        console.error("❌ [AI RESPONSE] Server error:", {
+          status: res.status,
+          error: data?.error
+        });
+      }
+      
+      console.log("✅ [AI RESPONSE] Successfully received KPI analysis with", data?.metrics?.length || 0, "metrics");
       setKpiAnalysis(data)
       setActiveTab("kpi")
     } catch (err) {
-      console.error("KPI Analysis error:", err)
+      console.error("❌ [AI RESPONSE] KPI Analysis error:", err)
     } finally {
       setLoadingKPI(false)
     }

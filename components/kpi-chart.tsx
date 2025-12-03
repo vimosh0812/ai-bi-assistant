@@ -82,22 +82,54 @@ export function KPIChart({
   // Load chart data from stored execution results (primary method)
   useEffect(() => {
     const loadChartData = async () => {
-      console.log('Loading chart data for:', { title, kpiAnalysisId, metricIndex, dataSource });
+      console.log('📊 [CHART LOAD] Loading chart data for:', { title, kpiAnalysisId, metricIndex, dataSource });
       
       // If we have stored results, we don't need the original data
       if (kpiAnalysisId && metricIndex !== undefined) {
+        console.log('📊 [CHART LOAD] Fetching stored execution results...', {
+          kpiAnalysisId,
+          metricIndex,
+          url: `/api/get-kpi-execution-results?kpiAnalysisId=${kpiAnalysisId}&metricIndex=${metricIndex}`
+        });
+        
         const response = await fetch(`/api/get-kpi-execution-results?kpiAnalysisId=${kpiAnalysisId}&metricIndex=${metricIndex}`);
         const result = await response.json();
+        
+        console.log('📊 [CHART LOAD] Execution results response:', {
+          success: result.success,
+          resultsCount: result.results?.length || 0,
+          fullResponse: result
+        });
         
           if (result.success && result.results.length > 0) {
             const executionResult = result.results[0];
             
+            console.log('📊 [CHART LOAD] Execution result details:', {
+              executionSuccess: executionResult.execution_success,
+              yAxisResultsCount: executionResult.y_axis_results?.length || 0,
+              xAxisResultsCount: executionResult.x_axis_results?.length || 0,
+              metricName: executionResult.metric_name,
+              sqlQuery: executionResult.sql_query,
+              xAxisQuery: executionResult.x_axis_query,
+              sampleYAxis: executionResult.y_axis_results?.slice(0, 2),
+              sampleXAxis: executionResult.x_axis_results?.slice(0, 2)
+            });
+            
             if (executionResult.execution_success && executionResult.y_axis_results && executionResult.y_axis_results.length > 0) {
+              console.log('✅ [CHART LOAD] Using stored execution results for chart');
               setChartData(generateChartDataFromSQL(executionResult.y_axis_results, executionResult.x_axis_results, chartConfig));
               setTableData(executionResult.y_axis_results || []);
               setDataSource('stored');
               return;
+            } else {
+              console.warn('⚠️ [CHART LOAD] Stored execution result is not valid:', {
+                executionSuccess: executionResult.execution_success,
+                hasYAxisResults: !!executionResult.y_axis_results,
+                yAxisResultsLength: executionResult.y_axis_results?.length || 0
+              });
             }
+          } else {
+            console.warn('⚠️ [CHART LOAD] No stored execution results found, falling back to live execution');
           }
       }
       
