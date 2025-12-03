@@ -5,9 +5,8 @@ import { Bar, Line, Pie, Doughnut } from "react-chartjs-2"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Copy, Database, ChevronLeft, ChevronRight, Trash2, Maximize2 } from "lucide-react"
+import { Copy, Database, ChevronLeft, ChevronRight, Trash2 } from "lucide-react"
 import { DataTableComponent } from "@/components/data-table-component"
-import { useRouter, usePathname } from "next/navigation"
 import { 
   Chart as ChartJS,
   CategoryScale,
@@ -73,8 +72,12 @@ export function KPIChart({
   const [showTableView, setShowTableView] = useState(false);
   const [dataSource, setDataSource] = useState<'stored' | 'live' | null>(null);
   const [tableData, setTableData] = useState<any[]>([]);
-  const router = useRouter();
-  const pathname = usePathname();
+  const [actualChartType, setActualChartType] = useState<'bar' | 'line' | 'pie' | 'area' | 'donut' | 'scatter'>(chartType);
+
+  // Update actualChartType when chartType prop changes
+  useEffect(() => {
+    setActualChartType(chartType);
+  }, [chartType]);
 
   // Load chart data from stored execution results (primary method)
   useEffect(() => {
@@ -83,41 +86,26 @@ export function KPIChart({
       
       // If we have stored results, we don't need the original data
       if (kpiAnalysisId && metricIndex !== undefined) {
-        console.log(`🎯 Loading stored execution results for KPI ${metricIndex} (${title})`);
-        
         const response = await fetch(`/api/get-kpi-execution-results?kpiAnalysisId=${kpiAnalysisId}&metricIndex=${metricIndex}`);
         const result = await response.json();
         
           if (result.success && result.results.length > 0) {
             const executionResult = result.results[0];
-            console.log(`✅ Using stored execution results for ${title}`);
-            console.log(`📊 Y-Axis Results:`, executionResult.y_axis_results?.slice(0, 3));
-            console.log(`📊 X-Axis Results:`, executionResult.x_axis_results?.slice(0, 3));
-            console.log(`📊 Execution Success:`, executionResult.execution_success);
             
             if (executionResult.execution_success && executionResult.y_axis_results && executionResult.y_axis_results.length > 0) {
               setChartData(generateChartDataFromSQL(executionResult.y_axis_results, executionResult.x_axis_results, chartConfig));
               setTableData(executionResult.y_axis_results || []);
               setDataSource('stored');
-              setLoading(false);
               return;
-            } else {
-              console.warn(`⚠️ Stored execution failed or no data for ${title}, falling back to live execution`);
             }
-          } else {
-            console.log(`📭 No stored results found for ${title}, falling back to live execution`);
           }
       }
       
       // Fallback to live execution - check if we have data
       if (!data || !Array.isArray(data) || data.length === 0) {
-        console.log(`📭 No data available for ${title}`);
-        setLoading(false);
         return;
       }
       
-      console.log(`KPIChart loading data for: ${title}`);
-      setLoading(true);
       setError(null);
       
       try {
@@ -184,7 +172,6 @@ export function KPIChart({
         });
         
         const yAxisData = await yAxisResponse.json();
-        console.log("Y-axis SQL results (temp table):", yAxisData.results);
         
         // Process the results
         if (yAxisData.success) {
@@ -198,14 +185,10 @@ export function KPIChart({
       } catch (err) {
         console.error("Error loading chart data:", err);
         setError("Failed to load chart data");
-        // Don't use fallback dummy data - keep loading state or show error
         setChartData(null);
-        // Set table data from original data if available
         if (data && Array.isArray(data) && data.length > 0) {
           setTableData(data);
         }
-      } finally {
-        setLoading(false);
       }
     };
     
@@ -216,6 +199,14 @@ export function KPIChart({
   const generateChartDataFromSQL = (yAxisResults: any[], xAxisResults: any[] | null, config: any) => {
     if (!yAxisResults || yAxisResults.length === 0) {
       return null; // Return null to indicate no data
+    }
+
+    // Enforce rule: Line charts require >= 3 X-axis values, otherwise use bar chart
+    if ((chartType === 'line' || chartType === 'area') && yAxisResults.length < 3) {
+      console.log(`⚠️ Converting ${chartType} chart to bar chart: Only ${yAxisResults.length} X-axis values (requires >= 3)`);
+      setActualChartType('bar');
+    } else {
+      setActualChartType(chartType);
     }
 
     // Different color palettes for different chart types
@@ -516,9 +507,11 @@ export function KPIChart({
     
     // Use the standard Chart.js data structure for line charts
     // For line/area charts, use the first OLAP color; for bar charts, cycle through colors
-    const datasetColor = chartType === 'line' || chartType === 'area' 
+    // Use actualChartType instead of chartType to respect the validation rule
+    const effectiveChartType = actualChartType;
+    const datasetColor = effectiveChartType === 'line' || effectiveChartType === 'area' 
       ? colors[0] 
-      : (chartType === 'pie' || chartType === 'donut' ? colors : colors[0]);
+      : (effectiveChartType === 'pie' || effectiveChartType === 'donut' ? colors : colors[0]);
     
     const finalData = {
       labels: chartData.map(item => {
@@ -533,14 +526,14 @@ export function KPIChart({
         {
           label: config.title || title,
           data: chartData.map(item => item.y), // Y-axis values
-          backgroundColor: chartType === 'pie' || chartType === 'donut' ? 
+          backgroundColor: effectiveChartType === 'pie' || effectiveChartType === 'donut' ? 
             colors : 
-            (chartType === 'area' ? `${datasetColor}80` : datasetColor), // Add transparency for area charts
+            (effectiveChartType === 'area' ? `${datasetColor}80` : datasetColor), // Add transparency for area charts
           borderColor: datasetColor,
-          borderWidth: chartType === 'line' || chartType === 'area' ? 2 : 1,
-          fill: chartType === 'area',
-          pointRadius: chartType === 'line' || chartType === 'area' ? 4 : 0,
-          pointHoverRadius: chartType === 'line' || chartType === 'area' ? 6 : 0,
+          borderWidth: effectiveChartType === 'line' || effectiveChartType === 'area' ? 2 : 1,
+          fill: effectiveChartType === 'area',
+          pointRadius: effectiveChartType === 'line' || effectiveChartType === 'area' ? 4 : 0,
+          pointHoverRadius: effectiveChartType === 'line' || effectiveChartType === 'area' ? 6 : 0,
         },
       ],
     };
@@ -616,6 +609,16 @@ export function KPIChart({
   // Ensure table data is available
   const finalTableData = tableData.length > 0 ? tableData : (data && Array.isArray(data) ? data : [])
   
+  // Final validation: Enforce line chart rule based on actual data
+  let displayChartType = actualChartType;
+  if (finalChartData && finalChartData.labels) {
+    const uniqueLabels = finalChartData.labels.length;
+    if ((actualChartType === 'line' || actualChartType === 'area') && uniqueLabels < 3) {
+      console.log(`⚠️ Final validation: Converting ${actualChartType} to bar chart (${uniqueLabels} < 3 labels)`);
+      displayChartType = 'bar';
+    }
+  }
+  
   // console.log("Final chart data for rendering:", finalChartData);
 
   // If no data available, don't render the chart
@@ -642,13 +645,13 @@ export function KPIChart({
   // Chart options
   const getChartOptions = () => ({
     responsive: true,
-    maintainAspectRatio: chartType === 'pie' || chartType === 'donut' ? true : true,
-    animation: chartType === 'pie' || chartType === 'donut' ? false : undefined,
-    onClick: chartType === 'pie' || chartType === 'donut' ? (event: any, elements: any[]) => {
+    maintainAspectRatio: displayChartType === 'pie' || displayChartType === 'donut' ? true : true,
+    animation: displayChartType === 'pie' || displayChartType === 'donut' ? false : undefined,
+    onClick: displayChartType === 'pie' || displayChartType === 'donut' ? (event: any, elements: any[]) => {
       // Prevent default click behavior that might shrink the chart
       event.stopPropagation();
     } : undefined,
-    layout: chartType === 'pie' || chartType === 'donut' ? {
+    layout: displayChartType === 'pie' || displayChartType === 'donut' ? {
       padding: {
         top: 20,
         bottom: 20,
@@ -658,7 +661,7 @@ export function KPIChart({
     } : undefined,
     plugins: {
       legend: {
-        position: (chartType === 'pie' || chartType === 'donut') ? 'bottom' : 'top' as const,
+        position: (displayChartType === 'pie' || displayChartType === 'donut') ? 'bottom' : 'top' as const,
         display: true,
         labels: {
           usePointStyle: true,
@@ -696,7 +699,7 @@ export function KPIChart({
         }
       },
     },
-    scales: chartType !== 'pie' && chartType !== 'donut' ? {
+    scales: displayChartType !== 'pie' && displayChartType !== 'donut' ? {
       x: {
         display: true,
         title: {
@@ -752,37 +755,6 @@ export function KPIChart({
   });
 
   const renderChart = () => {
-    if (loading) {
-      return (
-        <div className="h-64 flex items-center justify-center">
-          <div className="w-full space-y-4">
-            {/* Skeleton for chart title */}
-            <div className="h-4 bg-gray-200 rounded w-1/3 mx-auto"></div>
-            
-            {/* Skeleton for chart area */}
-            <div className="h-48 bg-gray-100 rounded-lg flex items-end justify-center space-x-2 p-4">
-              {/* Skeleton bars for bar chart */}
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div 
-                  key={i} 
-                  className="bg-gray-300 rounded-t"
-                  style={{ 
-                    height: `${Math.random() * 60 + 20}%`, 
-                    width: '12%' 
-                  }}
-                ></div>
-              ))}
-            </div>
-            
-            {/* Skeleton for loading text */}
-            <div className="text-center">
-              <div className="h-3 bg-gray-200 rounded w-1/4 mx-auto"></div>
-            </div>
-          </div>
-        </div>
-      )
-    }
-
     if (error) {
       return (
         <div className="h-64 flex items-center justify-center">
@@ -791,41 +763,17 @@ export function KPIChart({
       )
     }
 
-    // If no chart data, show skeleton loading
     if (!finalChartData) {
       return (
         <div className="h-64 flex items-center justify-center">
-          <div className="w-full space-y-4">
-            {/* Skeleton for chart title */}
-            <div className="h-4 bg-gray-200 rounded w-1/3 mx-auto animate-pulse"></div>
-            
-            {/* Skeleton for chart area */}
-            <div className="h-48 bg-gray-100 rounded-lg flex items-end justify-center space-x-2 p-4">
-              {/* Skeleton bars for bar chart */}
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div 
-                  key={i} 
-                  className="bg-gray-300 rounded-t animate-pulse"
-                  style={{ 
-                    height: `${Math.random() * 60 + 20}%`, 
-                    width: '12%' 
-                  }}
-                ></div>
-              ))}
-            </div>
-            
-            {/* Skeleton for loading text */}
-            <div className="text-center">
-              <div className="h-3 bg-gray-200 rounded w-1/4 mx-auto animate-pulse"></div>
-            </div>
-          </div>
+          <div className="text-gray-500">No data available</div>
         </div>
       )
     }
 
     const currentChartOptions = getChartOptions();
 
-    switch (chartType) {
+    switch (displayChartType) {
       case 'bar':
         return <Bar data={finalChartData} options={currentChartOptions as any} />
       case 'line':
@@ -923,37 +871,6 @@ export function KPIChart({
     }
   }
 
-  const handleExpand = () => {
-    // Extract folderId and fileId from pathname
-    const pathParts = pathname.split('/');
-    const folderIdIndex = pathParts.indexOf('dashboard') + 1;
-    const fileIdIndex = folderIdIndex + 1;
-    
-    if (pathParts[folderIdIndex] && pathParts[fileIdIndex]) {
-      const folderId = pathParts[folderIdIndex];
-      const fileId = pathParts[fileIdIndex];
-      
-      // Store chart data in sessionStorage for the charts page
-      const chartData = {
-        title,
-        description,
-        chartType,
-        chartConfig,
-        sqlQuery,
-        xAxisQuery,
-        category,
-        kpiAnalysisId,
-        metricIndex,
-        dataSource,
-        chartData: finalChartData,
-        tableData: finalTableData
-      };
-      
-      sessionStorage.setItem('expandedChartData', JSON.stringify(chartData));
-      router.push(`/dashboard/${folderId}/${fileId}/charts`);
-    }
-  };
-
   return (
     <>
       <Card 
@@ -968,17 +885,8 @@ export function KPIChart({
             <CardDescription className="mt-1">{description}</CardDescription>
           </div>
             <div className="flex gap-2 items-center">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleExpand}
-                className="h-8 w-8 p-0"
-                title="Expand chart view"
-              >
-                <Maximize2 className="h-4 w-4" />
-              </Button>
             <Badge variant="outline" className="text-xs">
-              {chartType.toUpperCase()}
+              {displayChartType.toUpperCase()}
             </Badge>
             {category && (
               <Badge variant="secondary" className="text-xs">
@@ -1014,7 +922,6 @@ export function KPIChart({
                 setShowTableView(false);
               }}
                 className="text-xs"
-                disabled={loading}
               >
                 <Database className="h-3 w-3 mr-1" />
                 Chart
@@ -1024,16 +931,9 @@ export function KPIChart({
                 size="sm"
               onClick={(e) => {
                 e.stopPropagation();
-                  console.log('Table button clicked:', { 
-                    showTableView, 
-                    tableData: tableData.length, 
-                    dataSource, 
-                    loading 
-                  });
                   setShowTableView(true);
                 }}
                 className="text-xs"
-                disabled={loading}
               >
                 <ChevronRight className="h-3 w-3 mr-1" />
                 Table
@@ -1041,13 +941,9 @@ export function KPIChart({
             </div>
           {showTableView && (
             <div className="text-xs text-muted-foreground">
-              {loading ? (
-                <div className="h-3 bg-gray-200 rounded w-32"></div>
-              ) : (
-                dataSource === 'stored' 
-                  ? `${finalTableData.length} rows of execution results`
-                  : `${finalTableData.length} rows of data`
-              )}
+              {dataSource === 'stored' 
+                ? `${finalTableData.length} rows of execution results`
+                : `${finalTableData.length} rows of data`}
             </div>
           )}
           </div>
@@ -1056,39 +952,7 @@ export function KPIChart({
         <div className="flex-1 w-full min-h-0 overflow-hidden relative">
             {showTableView ? (
               <div className="h-full overflow-auto" style={{ maxHeight: '400px' }}>
-                {/* Debug info */}
-                {process.env.NODE_ENV === 'development' && (
-                  <div className="text-xs text-gray-500 mb-2">
-                    Debug: dataSource={dataSource}, tableData.length={tableData.length}, loading={loading.toString()}
-                  </div>
-                )}
-                {loading ? (
-                  <div className="min-w-full">
-                    {/* Skeleton table */}
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          {Array.from({ length: 4 }).map((_, index) => (
-                            <th key={index} className="px-3 py-2 text-left border-b">
-                              <div className="h-4 bg-gray-200 rounded w-20"></div>
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Array.from({ length: 5 }).map((_, rowIndex) => (
-                          <tr key={rowIndex}>
-                            {Array.from({ length: 4 }).map((_, cellIndex) => (
-                              <td key={cellIndex} className="px-3 py-2 border-b">
-                                <div className="h-4 bg-gray-100 rounded w-16"></div>
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : finalTableData.length > 0 ? (
+                {finalTableData.length > 0 ? (
                   <div className="min-w-full">
                     <table className="w-full text-sm border-collapse">
                       <thead className="bg-gray-50 sticky top-0">
@@ -1120,8 +984,8 @@ export function KPIChart({
                 )}
               </div>
             ) : (
-              <div className={`h-full ${chartType === 'pie' || chartType === 'donut' ? 'flex items-center justify-center' : ''}`}>
-                {chartType === 'pie' || chartType === 'donut' ? (
+              <div className={`h-full ${displayChartType === 'pie' || displayChartType === 'donut' ? 'flex items-center justify-center' : ''}`}>
+                {displayChartType === 'pie' || displayChartType === 'donut' ? (
                   <div className="w-full max-w-md max-h-80 flex items-center justify-center">
                 {renderChart()}
                   </div>

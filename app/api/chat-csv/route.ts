@@ -62,6 +62,13 @@ export async function POST(request: NextRequest) {
         }),
       });
       const data = await resp.json();
+      // Log token usage for intent detection
+      if (data.usage) {
+        console.log("OpenAI Token Usage (Intent Detection):");
+        console.log("- Prompt tokens:", data.usage.prompt_tokens || "N/A");
+        console.log("- Completion tokens:", data.usage.completion_tokens || "N/A");
+        console.log("- Total tokens:", data.usage.total_tokens || "N/A");
+      }
       return data.choices[0]?.message?.content?.trim().toLowerCase() || "query";
     };
     const intent = await detectIntent(message);
@@ -91,7 +98,15 @@ User instruction: "${message}"`;
         }),
       });
 
-      let rawSQL = (await prepResp.json()).choices[0]?.message?.content?.trim();
+      const prepData = await prepResp.json();
+      // Log token usage for preprocessing
+      if (prepData.usage) {
+        console.log("OpenAI Token Usage (Preprocessing):");
+        console.log("- Prompt tokens:", prepData.usage.prompt_tokens || "N/A");
+        console.log("- Completion tokens:", prepData.usage.completion_tokens || "N/A");
+        console.log("- Total tokens:", prepData.usage.total_tokens || "N/A");
+      }
+      let rawSQL = prepData.choices[0]?.message?.content?.trim();
       if (!rawSQL) throw new Error("Failed to generate preprocessing SQL");
 
       // --- Clean SQL: remove backticks, semicolons, and extra whitespace ---
@@ -160,7 +175,17 @@ Answer ONLY in JSON like:
 
     if (!openaiResp.ok) throw new Error("OpenAI API error");
 
-    let rawResponse = (await openaiResp.json()).choices[0]?.message?.content || "{}";
+    const openaiData = await openaiResp.json();
+    // Log token usage for main query
+    if (openaiData.usage) {
+      console.log("OpenAI Token Usage (Main Query):");
+      console.log("- Prompt tokens:", openaiData.usage.prompt_tokens || "N/A");
+      console.log("- Completion tokens:", openaiData.usage.completion_tokens || "N/A");
+      console.log("- Total tokens:", openaiData.usage.total_tokens || "N/A");
+      console.log("- Estimated cost (gpt-4o-mini):", `$${((openaiData.usage.prompt_tokens || 0) * 0.00015 / 1000 + (openaiData.usage.completion_tokens || 0) * 0.0006 / 1000).toFixed(4)}`);
+    }
+
+    let rawResponse = openaiData.choices[0]?.message?.content || "{}";
     rawResponse = rawResponse.replace(/^```json\s*/, "").replace(/```$/, "").trim();
 
     let parsed: { sql: string | null; explanation: string; chartConfig?: any };
@@ -184,6 +209,13 @@ Answer ONLY in JSON like:
         }),
       });
       const retryData = await retryResp.json();
+      // Log token usage for retry
+      if (retryData.usage) {
+        console.log("OpenAI Token Usage (Retry):");
+        console.log("- Prompt tokens:", retryData.usage.prompt_tokens || "N/A");
+        console.log("- Completion tokens:", retryData.usage.completion_tokens || "N/A");
+        console.log("- Total tokens:", retryData.usage.total_tokens || "N/A");
+      }
       const retryContent = retryData.choices[0]?.message?.content?.trim() || "{}";
       parsed = JSON.parse(retryContent);
     }

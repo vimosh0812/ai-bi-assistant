@@ -243,6 +243,15 @@ export default function FileAnalyticsPage() {
     setError(null);
     
     try {
+      // Validate data before sending
+      if (!csvData || csvData.length === 0) {
+        throw new Error("No CSV data available");
+      }
+      
+      if (!csvData[0] || Object.keys(csvData[0]).length === 0) {
+        throw new Error("CSV data has no headers");
+      }
+
       // Generate KPI analysis
       const response = await fetch("/api/generate-kpi-analysis", {
         method: "POST",
@@ -254,38 +263,62 @@ export default function FileAnalyticsPage() {
         }),
       });
       
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        throw new Error(`Failed to parse server response: ${response.status} ${response.statusText}`);
+      }
+      
+      if (!response.ok) {
+        throw new Error(data?.error || `Server error: ${response.status}`);
+      }
       
       if (data.error) {
         throw new Error(data.error);
       }
       
+      if (!data || !data.metrics || !Array.isArray(data.metrics)) {
+        throw new Error("Invalid KPI analysis response format");
+      }
+      
       setKpiAnalysis(data);
       
       // Store the KPI analysis
-      const storeResponse = await fetch("/api/store-kpi-analysis", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          fileId: fileDetails.id,
-          kpiAnalysis: data
-        }),
-      });
-      
-      const storeData = await storeResponse.json();
-      
-      if (storeData.success) {
-        setHasKpiAnalysis(true);
-        // Update file details
-        setFileDetails((prev: any) => ({
-          ...prev,
-          has_kpi_analysis: true,
-          kpi_analysis_id: storeData.kpiAnalysisId
-        }));
+      try {
+        const storeResponse = await fetch("/api/store-kpi-analysis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            fileId: fileDetails.id,
+            kpiAnalysis: data
+          }),
+        });
+        
+        if (storeResponse.ok) {
+          const storeData = await storeResponse.json();
+          
+          if (storeData.success) {
+            setHasKpiAnalysis(true);
+            // Update file details
+            setFileDetails((prev: any) => ({
+              ...prev,
+              has_kpi_analysis: true,
+              kpi_analysis_id: storeData.kpiAnalysisId
+            }));
+          }
+        } else {
+          console.warn("Failed to store KPI analysis:", storeResponse.status);
+        }
+      } catch (storeError) {
+        console.warn("Error storing KPI analysis:", storeError);
+        // Don't throw - KPI was generated successfully, just storage failed
       }
       
     } catch (err: any) {
-      setError(err.message);
+      console.error("KPI generation error:", err);
+      const errorMessage = err?.message || err?.toString() || "Failed to generate KPI analysis. Please try again.";
+      setError(errorMessage);
     } finally {
       setIsGeneratingKPI(false);
     }
@@ -344,15 +377,12 @@ export default function FileAnalyticsPage() {
 
   // Remove the generateEmbedCode function as we'll use the TableauViz component instead
 
-  // Show loading state
+  // Show loading state - simplified
   if (isLoading) {
     return (
       <div className="container mx-auto p-6">
         <div className="flex items-center justify-center h-[60vh]">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading file data...</p>
-          </div>
+          <p className="text-gray-600">Loading...</p>
         </div>
       </div>
     );
@@ -517,10 +547,7 @@ export default function FileAnalyticsPage() {
           
           {isGeneratingKPI ? (
             <div className="flex items-center justify-center py-12">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-gray-600">Generating KPI analysis...</p>
-              </div>
+              <p className="text-gray-600">Generating KPI analysis...</p>
             </div>
           ) : kpiAnalysis ? (
             <>

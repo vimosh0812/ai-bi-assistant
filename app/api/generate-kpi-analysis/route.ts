@@ -85,10 +85,32 @@ function analyzeColumnValues(data: any[], headers: string[]) {
 
 export async function POST(req: Request) {
   try {
-    const { headers, rows, fileId } = await req.json();
+    // Validate OpenAI API key
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json(
+        { error: "OpenAI API key is not configured" },
+        { status: 500 }
+      );
+    }
+
+    let requestData;
+    try {
+      requestData = await req.json();
+    } catch (parseError) {
+      return NextResponse.json(
+        { error: "Invalid request body. Expected JSON." },
+        { status: 400 }
+      );
+    }
+
+    const { headers, rows, fileId } = requestData;
     
-    if (!headers || !rows || !Array.isArray(rows)) {
-      return NextResponse.json({ error: "Missing headers or rows" }, { status: 400 });
+    if (!headers || !Array.isArray(headers) || headers.length === 0) {
+      return NextResponse.json({ error: "Missing or invalid headers" }, { status: 400 });
+    }
+
+    if (!rows || !Array.isArray(rows) || rows.length === 0) {
+      return NextResponse.json({ error: "Missing or invalid rows data" }, { status: 400 });
     }
 
     // fileId is optional for this endpoint
@@ -207,18 +229,20 @@ export async function POST(req: Request) {
     - Generate Y-axis queries to aggregate continuous columns by categorical groups
     - If no suitable categorical columns exist, create summary charts instead of grouped charts
     
-    TIME-SERIES CHART RULES:
-    - For DATE columns: Generate LINE charts with time on X-axis
-    - Use LINE charts when there are MORE THAN 3 months OR MORE THAN 3 years of data
-    - Use BAR charts when there are 3 or fewer time periods (for better readability)
-    - For monthly data with 4+ months: Use LINE chart to show continuous trend
-    - For yearly data with 4+ years: Use LINE chart to show continuous trend
-    - For 2-3 months or 2-3 years: Use BAR chart for better comparison
+    TIME-SERIES CHART RULES (STRICT):
+    - For DATE columns: Generate LINE charts with time on X-axis ONLY if there are 3 or MORE unique X-axis values
+    - CRITICAL RULE: If there are FEWER than 3 unique X-axis values, you MUST use BAR chart instead of LINE chart
+    - Use LINE charts ONLY when X-axis has >= 3 distinct values (e.g., 3+ months, 3+ years, 3+ quarters)
+    - Use BAR charts when there are fewer than 3 unique X-axis values (for better readability)
+    - For monthly data with 3+ months: Use LINE chart to show continuous trend
+    - For yearly data with 3+ years: Use LINE chart to show continuous trend
+    - For 1-2 months or 1-2 years: Use BAR chart (NOT line chart)
     - Prioritize YEARLY analysis over monthly analysis to avoid redundancy
-    - Only create monthly analysis if it provides significantly different insights
+    - Only create monthly analysis if it reveals significantly different insights
     - Use SQL functions: YEAR(date_column), MONTH(date_column)
     - Group by time periods and aggregate metrics
     - Focus on years primarily, months only when necessary for detailed trends
+    - REMEMBER: Count the number of unique X-axis values before deciding chart type. If < 3, use BAR chart.
     
     OLAP (Online Analytical Processing) FEATURES:
     - For monthly data spanning multiple months, consider QUARTER-based aggregation (Q1, Q2, Q3, Q4)
@@ -240,10 +264,11 @@ export async function POST(req: Request) {
     1. A SQL query that calculates the metric (use GROUP BY with categorical columns)
     2. A clear description of what the metric measures
     3. The most appropriate chart type based on data types:
-       - BAR: categorical X-axis + continuous Y-axis
-       - LINE: date/time X-axis + continuous Y-axis  
+       - BAR: categorical X-axis + continuous Y-axis, OR when X-axis has < 3 unique values
+       - LINE: date/time X-axis + continuous Y-axis, BUT ONLY if X-axis has >= 3 unique values
        - PIE/DOUGHNUT: categorical data with counts/percentages
        - SCATTER: two continuous variables
+       - CRITICAL: Before choosing LINE chart, verify X-axis will have >= 3 unique values. If not, use BAR chart.
     4. Chart configuration with proper xAxis and yAxis column names
     5. X-axis query - SELECT DISTINCT [categorical_column] FROM data ORDER BY [categorical_column]
     
@@ -268,7 +293,8 @@ export async function POST(req: Request) {
     - Only create monthly analysis if it reveals different patterns than yearly
     - Avoid creating both "Total Sales by Year" and "Total Sales by Month" - choose the most meaningful one
     - Use appropriate date functions in SQL (YEAR(), MONTH(), etc.)
-    - Generate line charts for time-series data (years preferred, months only when necessary)
+    - Generate line charts for time-series data ONLY if there are >= 3 unique X-axis values
+    - If time-series data has < 3 unique X-axis values, use BAR chart instead
     
     PIE CHART REQUIREMENTS:
     - For CATEGORICAL columns (≤10 unique values), generate PIE or DOUGHNUT charts
@@ -380,26 +406,42 @@ export async function POST(req: Request) {
     - Use meaningful business column names in results
     - Order by count/total DESC for better visualization`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "You are an expert data analyst and KPI specialist with deep knowledge of business metrics and data visualization." },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.3,
-      max_tokens: 2000,
-    });
+    let completion;
+    try {
+      completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "You are an expert data analyst and KPI specialist with deep knowledge of business metrics and data visualization." },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.3,
+        max_tokens: 2000,
+      });
+    } catch (apiError: any) {
+      console.error("OpenAI API error:", apiError);
+      const errorMessage = apiError?.message || apiError?.error?.message || "Failed to generate response";
+      throw new Error(`OpenAI API error: ${errorMessage}`);
+    }
 
     // Log token usage
-    const inputTokens = completion.usage?.prompt_tokens || 0;
-    const totalTokens = completion.usage?.total_tokens || 0;
-    console.log("OpenAI Token Usage:");
-    console.log("- Prompt tokens:", completion.usage?.prompt_tokens || "N/A");
-    console.log("- Completion tokens:", completion.usage?.completion_tokens || "N/A");
-    console.log("- Total tokens:", completion.usage?.total_tokens || "N/A");
+    if (completion?.usage) {
+      console.log("OpenAI Token Usage:");
+      console.log("- Prompt tokens:", completion.usage.prompt_tokens || "N/A");
+      console.log("- Completion tokens:", completion.usage.completion_tokens || "N/A");
+      console.log("- Total tokens:", completion.usage.total_tokens || "N/A");
+      console.log("- Estimated cost (gpt-4o-mini):", `$${((completion.usage.prompt_tokens || 0) * 0.00015 / 1000 + (completion.usage.completion_tokens || 0) * 0.0006 / 1000).toFixed(4)}`);
+    }
 
-    const rawResponse = completion.choices[0]?.message?.content ?? "{}";
-    console.log("OpenAI KPI Analysis raw response:", rawResponse);
+    if (!completion?.choices?.[0]?.message?.content) {
+      console.error("OpenAI returned empty response. Completion:", completion);
+      throw new Error("OpenAI returned empty response. Please try again.");
+    }
+
+    const rawResponse = completion.choices[0].message.content;
+    
+    if (!rawResponse || rawResponse.trim().length === 0) {
+      throw new Error("OpenAI returned empty content. Please try again.");
+    }
 
     let parsed: OpenAIKPIAnalysis;
     try {
@@ -436,11 +478,34 @@ export async function POST(req: Request) {
       };
     }
 
+    // Validate and enforce chart type rules: Line charts require >= 3 X-axis values
+    if (parsed.metrics && Array.isArray(parsed.metrics)) {
+      parsed.metrics = parsed.metrics.map((metric: any) => {
+        // If chart type is line or area, we need to validate X-axis values
+        // Since we can't execute queries here, we'll add a note and let the frontend validate
+        // But we can check if xAxisQuery exists and looks like it might return < 3 values
+        if ((metric.chartType === 'line' || metric.chartType === 'area') && metric.xAxisQuery) {
+          // Check if xAxisQuery has a LIMIT clause that would limit results to < 3
+          const limitMatch = metric.xAxisQuery.match(/LIMIT\s+(\d+)/i);
+          if (limitMatch && parseInt(limitMatch[1]) < 3) {
+            console.log(`⚠️ Converting ${metric.chartType} chart to bar chart: X-axis query has LIMIT < 3`);
+            metric.chartType = 'bar';
+          }
+          // Note: Full validation will happen in the frontend when data is loaded
+          // We'll add a flag to indicate this needs validation
+          metric._needsValidation = true;
+        }
+        return metric;
+      });
+    }
+
     return NextResponse.json(parsed);
-  } catch (err) {
+  } catch (err: any) {
     console.error("KPI Analysis error:", err);
+    const errorMessage = err?.message || err?.toString() || "Unknown error occurred";
+    console.error("Error details:", errorMessage);
     return NextResponse.json(
-      { error: "Failed to generate KPI analysis" },
+      { error: `Failed to generate KPI analysis: ${errorMessage}` },
       { status: 500 }
     );
   }
