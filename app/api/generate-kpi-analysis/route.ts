@@ -162,8 +162,15 @@ export async function POST(req: Request) {
 
     // Sanitize headers to match database column names (lowercase with underscores)
     // Use filtered headers (without 'id' columns)
+    // This must match the sanitization in temp-table-manager.ts
     const sanitizedHeaders = headersWithoutId.map((header: string) => 
-      header.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+      header
+        .toLowerCase()
+        .replace(/\s+/g, '_') // Replace spaces with underscore
+        .replace(/[^a-z0-9_]/g, '') // Remove all non-alphanumeric chars except underscore
+        .replace(/_+/g, '_') // Collapse multiple underscores into one
+        .replace(/^_+|_+$/g, '') // Remove leading/trailing underscores
+        .replace(/^[0-9]/, 'col_$&') // Prefix numeric columns with 'col_'
     );
     
     const prompt = `You are an expert data analyst and KPI specialist. 
@@ -178,7 +185,14 @@ export async function POST(req: Request) {
     
     COLUMN ANALYSIS (Critical for chart generation):
     ${Object.entries(columnAnalysis).map(([column, analysis], index) => {
-      const sanitizedColumn = sanitizedHeaders[index] || column.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+      // Use the pre-computed sanitized header, or fallback to same sanitization logic
+      const sanitizedColumn = sanitizedHeaders[index] || column
+        .toLowerCase()
+        .replace(/\s+/g, '_')
+        .replace(/[^a-z0-9_]/g, '')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .replace(/^[0-9]/, 'col_$&');
       let analysisText = `- ${column} (${sanitizedColumn}): ${analysis.type.toUpperCase()}`;
       analysisText += ` (${analysis.uniqueValues} unique values)`;
       

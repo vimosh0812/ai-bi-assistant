@@ -416,12 +416,16 @@ export class TempTableManager {
 
   /**
    * Sanitize column names for SQL safety
+   * This must match the sanitization used in generate-kpi-analysis/route.ts
    */
   private sanitizeColumnName(columnName: string): string {
     return columnName
-      .replace(/[^a-zA-Z0-9_]/g, '_') // Replace non-alphanumeric chars with underscore
-      .replace(/^[0-9]/, 'col_$&') // Prefix numeric columns with 'col_'
-      .toLowerCase();
+      .toLowerCase()
+      .replace(/\s+/g, '_') // Replace spaces with underscore
+      .replace(/[^a-z0-9_]/g, '') // Remove all non-alphanumeric chars except underscore
+      .replace(/_+/g, '_') // Collapse multiple underscores into one
+      .replace(/^_+|_+$/g, '') // Remove leading/trailing underscores
+      .replace(/^[0-9]/, 'col_$&'); // Prefix numeric columns with 'col_'
   }
 
   /**

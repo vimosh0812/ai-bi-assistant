@@ -34,6 +34,7 @@ async function executeAndStoreKPIQueries(
 
       if (!yAxisResult.success) {
         console.error(`❌ Failed to execute main query for ${metric.name}:`, yAxisResult.error);
+        // Don't store failed execution results - just track for filtering
         executedResults.push({
           metricName: metric.name,
           success: false,
@@ -115,35 +116,8 @@ async function executeAndStoreKPIQueries(
     } catch (error) {
       console.error(`❌ Error executing KPI ${metric.name}:`, error);
       
-      // Store failed execution results in database
-      try {
-        const { data: failedExecutionData, error: failedExecutionError } = await supabase
-          .from("kpi_execution_results")
-          .insert([
-            {
-              kpi_analysis_id: kpiAnalysisId,
-              metric_name: metric.name,
-              metric_index: i,
-              sql_query: metric.sqlQuery,
-              x_axis_query: metric.xAxisQuery,
-              y_axis_results: null,
-              x_axis_results: null,
-              execution_success: false,
-              created_at: new Date().toISOString()
-            }
-          ])
-          .select()
-          .single();
-
-        if (failedExecutionError) {
-          console.error(`❌ Failed to store failed execution results for ${metric.name}:`, failedExecutionError);
-        } else {
-          console.log(`📝 Failed execution results stored for ${metric.name}`);
-        }
-      } catch (dbError) {
-        console.error(`❌ Database error storing failed execution for ${metric.name}:`, dbError);
-      }
-      
+      // Don't store failed execution results - they will be filtered out later
+      // Just track the failure for filtering purposes
       executedResults.push({
         metricName: metric.name,
         success: false,
@@ -253,28 +227,81 @@ export async function POST(request: NextRequest) {
         console.log(`✅ Successful executions: ${successfulExecutions}`);
         console.log(`❌ Failed executions: ${failedExecutions}`);
         
-        // Only delete table if we have at least one successful execution
-        if (successfulExecutions > 0) {
-          console.log(`🗑️ Cleaning up temporary table: ${fileData.table_name}`);
-          const cleanupResult = await tempTableManager.dropTempTable(fileData.table_name);
+        // Filter out failed metrics and keep only successful ones
+        if (failedExecutions > 0) {
+          console.log(`\n🔧 Filtering out ${failedExecutions} failed metrics...`);
           
-          if (cleanupResult.success) {
-            console.log("✅ Temporary table cleaned up successfully");
-            
-            // Update file record to remove table_name
-            await supabase
-              .from("files")
-              .update({ table_name: null })
-              .eq("id", fileId);
-              
-            console.log("✅ File record updated - table_name removed");
+          // Create a map of successful metric names
+          const successfulMetricNames = new Set(
+            executedResults
+              .filter(r => r.success)
+              .map(r => r.metricName)
+          );
+          
+          // Filter metrics to keep only successful ones
+          const originalMetricsCount = kpiAnalysis.metrics.length;
+          kpiAnalysis.metrics = kpiAnalysis.metrics.filter((metric: any) => 
+            successfulMetricNames.has(metric.name)
+          );
+          
+          console.log(`✅ Kept ${kpiAnalysis.metrics.length} successful metrics (removed ${originalMetricsCount - kpiAnalysis.metrics.length} failed)`);
+          
+          // Update the stored KPI analysis with only successful metrics
+          const { error: updateAnalysisError } = await supabase
+            .from("kpi_analyses")
+            .update({
+              analysis_data: kpiAnalysis,
+              updated_at: new Date().toISOString()
+            })
+            .eq("id", data.id);
+          
+          if (updateAnalysisError) {
+            console.error("❌ Failed to update KPI analysis with filtered metrics:", updateAnalysisError);
           } else {
-            console.warn("⚠️ Failed to clean up temporary table:", cleanupResult.error);
+            console.log("✅ Updated KPI analysis to include only successful metrics");
           }
-        } else {
-          console.log("⚠️ No successful executions - keeping temporary table for debugging");
+          
+          // Delete ALL failed execution results from database (both stored and unstored)
+          const failedMetricNames = executedResults
+            .filter(r => !r.success)
+            .map(r => r.metricName);
+          
+          if (failedMetricNames.length > 0) {
+            // Delete by metric names (covers all failed results regardless of execution_success flag)
+            const { error: deleteError } = await supabase
+              .from("kpi_execution_results")
+              .delete()
+              .eq("kpi_analysis_id", data.id)
+              .in("metric_name", failedMetricNames);
+            
+            if (deleteError) {
+              console.warn("⚠️ Failed to delete failed execution results:", deleteError);
+            } else {
+              console.log(`✅ Deleted all execution results for ${failedMetricNames.length} failed metrics from database`);
+            }
+          }
+          
+          // Re-index successful execution results to be sequential (0, 1, 2...)
+          const successfulResults = executedResults.filter(r => r.success);
+          for (let newIndex = 0; newIndex < successfulResults.length; newIndex++) {
+            const result = successfulResults[newIndex];
+            if (result.executionData?.id) {
+              const { error: reindexError } = await supabase
+                .from("kpi_execution_results")
+                .update({ metric_index: newIndex })
+                .eq("id", result.executionData.id);
+              
+              if (reindexError) {
+                console.warn(`⚠️ Failed to re-index metric ${result.metricName}:`, reindexError);
+              }
+            }
+          }
+          
+          console.log(`✅ Re-indexed ${successfulResults.length} successful metrics to sequential indices`);
         }
         
+        // Keep temporary table for chatbot use - DO NOT DELETE
+        console.log(`💾 Keeping temporary table for chatbot: ${fileData.table_name}`);
         console.log("📈 Execution results stored in database");
         
         // Verify temporary table still exists and has data
