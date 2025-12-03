@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useRef } from "react"
+import React, { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -66,10 +66,12 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
   const [sampleRows, setSampleRows] = useState<Record<string, any>[]>([])
   const [uploading, setUploading] = useState(false)
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1) // Step 1: Upload, Step 2: Summary, Step 3: Preprocessed
+  const [showUploadWarning, setShowUploadWarning] = useState(false)
   const [urlColumns, setUrlColumns] = useState<string[]>([])
   const [editingColumn, setEditingColumn] = useState<string | null>(null)
   const [editingRowIndex, setEditingRowIndex] = useState<number | null>(null)
   const [deleteColumnDialog, setDeleteColumnDialog] = useState<{ open: boolean; column: string; percentage: number; isImportant: boolean }>({ open: false, column: "", percentage: 0, isImportant: false })
+  const [missingValueAction, setMissingValueAction] = useState<"removeRows" | "removeColumn">("removeRows")
   const [preprocessConfirmDialog, setPreprocessConfirmDialog] = useState(false)
   const [columnsToAutoRemove, setColumnsToAutoRemove] = useState<string[]>([])
   const [privacyColumnsToRemove, setPrivacyColumnsToRemove] = useState<string[]>([])
@@ -738,7 +740,29 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
   }
 
   /** Handle back to previous step */
+  // Prevent page refresh/navigation during upload
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (uploading) {
+        e.preventDefault()
+        e.returnValue = "File is currently uploading. Please wait and don't refresh or navigate away."
+        return e.returnValue
+      }
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload)
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+    }
+  }, [uploading])
+
   const handleBackToPreviousStep = () => {
+    if (uploading) {
+      setShowUploadWarning(true)
+      return
+    }
+    
     if (currentStep === 3) {
       // Restore original data when going back from preprocessed view
       if (originalHeaders.length > 0 && originalData.length > 0) {
@@ -813,7 +837,24 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
               processedData.length -
                 generateDataQualitySummary(modifiedHeaders, processedData).duplicateCount,
             ],
-            backgroundColor: ["#000000", "#9ca3af"],
+            backgroundColor: [
+              "rgba(59, 130, 246, 0.8)", // Light blue with transparency
+              "rgba(147, 197, 253, 0.8)", // Lighter blue with transparency
+            ],
+            borderColor: [
+              "rgba(59, 130, 246, 1)", // Solid light blue
+              "rgba(147, 197, 253, 1)", // Solid lighter blue
+            ],
+            borderWidth: 2,
+            hoverBackgroundColor: [
+              "rgba(59, 130, 246, 1)", // Full opacity on hover
+              "rgba(147, 197, 253, 1)", // Full opacity on hover
+            ],
+            hoverBorderColor: [
+              "rgba(59, 130, 246, 1)",
+              "rgba(147, 197, 253, 1)",
+            ],
+            hoverBorderWidth: 3,
           },
         ],
       }
@@ -829,7 +870,12 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
             {
               label: "Missing Values",
               data: missingCols.map(([_, count]) => count),
-              backgroundColor: "#6b7280",
+              backgroundColor: "rgba(59, 130, 246, 0.8)", // Light blue
+              borderColor: "rgba(59, 130, 246, 1)", // Solid light blue
+              borderWidth: 1,
+              hoverBackgroundColor: "rgba(59, 130, 246, 1)", // Full opacity on hover
+              hoverBorderColor: "rgba(59, 130, 246, 1)",
+              hoverBorderWidth: 2,
             },
           ],
         }
@@ -841,7 +887,12 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b">
         <div className="flex items-center">
-          <Button variant="ghost" onClick={handleBackToPreviousStep} className="mr-3">
+          <Button 
+            variant="ghost" 
+            onClick={handleBackToPreviousStep} 
+            className="mr-3"
+            disabled={uploading}
+          >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <h1 className="text-xl font-semibold">
@@ -858,6 +909,17 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
           >
             {loadingAI ? "Processing..." : "Next"}
           </Button>
+        )}
+        {currentStep === 3 && (
+          <form onSubmit={handleSubmit}>
+            <Button
+              type="submit"
+              disabled={uploading}
+              className="bg-black text-white px-4 py-2 rounded"
+            >
+              {uploading ? "Uploading..." : "Upload Processed File"}
+            </Button>
+          </form>
         )}
         {currentStep === 2 && (
           <Button
@@ -1241,16 +1303,19 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => setDeleteColumnDialog({ 
+                                onClick={() => {
+                                  setMissingValueAction("removeRows") // Reset to default when opening
+                                  setDeleteColumnDialog({ 
                                   open: true, 
                                   column, 
                                   percentage,
                                   isImportant: importantColumns.includes(column)
-                                })}
+                                  })
+                                }}
                                 className="text-red-600 border-red-300 hover:bg-red-100"
                               >
                                 <AlertTriangle className="h-4 w-4 mr-1" />
-                                Handle Missing Values
+                                Continue
                               </Button>
                             ) : (
                               <Button
@@ -1349,19 +1414,6 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
             )
           })()}
 
-          {/* AI Summary Section */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            {generateDataQualitySummary(modifiedHeaders, processedData).lowValueColumns.length > 0 && (
-              <div className="bg-white rounded-xl p-6 flex flex-col h-full min-h-[220px] border border-gray-200">
-                <h3 className="text-lg font-semibold mb-4 text-gray-900">Low-Value Columns (&gt;30% missing)</h3>
-                <ul className="list-disc ml-5 text-sm flex-1 space-y-1">
-                  {generateDataQualitySummary(modifiedHeaders, processedData).lowValueColumns.map((col) => (
-                    <li key={col} className="text-gray-700">{col}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
 
           {/* Currency Columns Management */}
             {aiCurrencyColumns.length > 0 && (
@@ -1375,7 +1427,7 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
                   <span className="text-sm text-gray-600">
                     {aiCurrencyColumns.length} column(s) detected
                   </span>
-                </div>
+              </div>
                 <p className="text-sm text-gray-600 mt-2">
                   These currency columns will be automatically cleaned (removed currency symbols) for better data analysis.
                 </p>
@@ -1443,57 +1495,152 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
             </AlertDialogTitle>
             <AlertDialogDescription className="text-gray-700">
               Column <strong>{deleteColumnDialog.column}</strong> has {deleteColumnDialog.percentage.toFixed(1)}% missing values.
+              {deleteColumnDialog.isImportant && (
+                <>
+                  <br /><br />
+                  This is an <strong>important column</strong>. Please fill in the missing values manually in the "Missing Values Management" section above, or choose an option below.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           
-          <div className="my-4">
-            {deleteColumnDialog.isImportant ? (
-              <Alert className="bg-red-50 border-red-200">
-                <AlertTriangle className="h-4 w-4 text-red-600" />
-                <AlertTitle className="text-red-800">Important Column</AlertTitle>
-                <AlertDescription className="text-red-700">
-                  This column is marked as important. Please fill the missing values manually in the "Missing Values Management" section above, then try preprocessing again.
-                </AlertDescription>
-              </Alert>
-            ) : (
-              <Alert className="bg-gray-50 border-gray-300">
-                <AlertTriangle className="h-4 w-4 text-gray-600" />
-                <AlertTitle className="text-black">Column Not Important</AlertTitle>
-                <AlertDescription className="text-gray-700">
-                  This column doesn't appear to be critical. You can delete it to proceed with preprocessing.
+          <div className="my-4 space-y-3">
+            <div className="space-y-2">
+              <label className="flex items-center space-x-2 cursor-pointer p-3 border rounded-lg hover:bg-gray-50">
+                <input
+                  type="radio"
+                  name="missingValueAction"
+                  value="removeRows"
+                  checked={missingValueAction === "removeRows"}
+                  onChange={(e) => setMissingValueAction(e.target.value as "removeRows" | "removeColumn")}
+                  className="w-4 h-4 text-green-600"
+                />
+                <div className="flex-1">
+                  <span className="font-medium text-gray-900">Remove Rows with Missing Values</span>
+                  <p className="text-sm text-gray-600">Automatically remove all rows that have missing values in this column</p>
+                </div>
+              </label>
+              
+              <label className="flex items-center space-x-2 cursor-pointer p-3 border rounded-lg hover:bg-gray-50">
+                <input
+                  type="radio"
+                  name="missingValueAction"
+                  value="removeColumn"
+                  checked={missingValueAction === "removeColumn"}
+                  onChange={(e) => setMissingValueAction(e.target.value as "removeRows" | "removeColumn")}
+                  className="w-4 h-4 text-red-600"
+                />
+                <div className="flex-1">
+                  <span className="font-medium text-gray-900">Remove Column</span>
+                  <p className="text-sm text-gray-600">Remove the entire column from the dataset</p>
+                </div>
+              </label>
+            </div>
+            
+            {deleteColumnDialog.isImportant && (
+              <Alert className="bg-amber-50 border-amber-200">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <AlertTitle className="text-amber-800">Important Column</AlertTitle>
+                <AlertDescription className="text-amber-700">
+                  This column is marked as important. Consider filling missing values manually for best results.
                 </AlertDescription>
               </Alert>
             )}
           </div>
 
-          <AlertDialogFooter>
-            <AlertDialogCancel>
-              Cancel
-            </AlertDialogCancel>
-            {deleteColumnDialog.isImportant ? (
-              <AlertDialogAction
+          <AlertDialogFooter className="flex flex-col sm:flex-row gap-3">
+            <AlertDialogCancel 
+              className="w-full sm:w-auto"
                 onClick={() => {
-                  // User acknowledges they need to fill values manually
-                  setDeleteColumnDialog({ open: false, column: "", percentage: 0, isImportant: false })
+                setMissingValueAction("removeRows") // Reset to default
                 }}
               >
-                I'll Fill Values Manually
-              </AlertDialogAction>
-            ) : (
+              Cancel
+            </AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => {
+                if (missingValueAction === "removeRows") {
+                  // Remove rows with missing values automatically
+                  if (deleteColumnDialog.column) {
+                    const rowsToRemove = getRowsWithMissingValues(deleteColumnDialog.column)
+                    const newData = processedData.filter((_, index) => !rowsToRemove.includes(index))
+                    setProcessedData(newData)
+                    setSummary(generateDataQualitySummary(modifiedHeaders, newData))
+                    console.log(`✅ Removed ${rowsToRemove.length} rows with missing values in column "${deleteColumnDialog.column}"`)
+                  }
+                } else if (missingValueAction === "removeColumn") {
                   // Delete the column
                   if (deleteColumnDialog.column) {
                     handleDeleteColumn(deleteColumnDialog.column)
                   }
+                }
+                
+                // Check if there are more columns with missing values that need attention
+                const dq = generateDataQualitySummary(modifiedHeaders, processedData)
+                const missingCols = Object.entries(dq.missingValueSummary)
+                  .filter(([_, count]) => count > 0)
+                  .map(([col, count]) => ({
+                    column: col,
+                    count,
+                    percentage: (count / dq.totalRows) * 100,
+                    rows: getRowsWithMissingValues(col)
+                  }))
+                  .filter(({ percentage }) => percentage >= 5) // Only columns with >=5% missing
+                  .sort((a, b) => b.count - a.count)
+                
+                // Find the next column that needs attention (excluding the one we just handled)
+                const nextColumn = missingCols.find(col => col.column !== deleteColumnDialog.column)
+                
+                if (nextColumn) {
+                  // Show dialog for next column
+                  setDeleteColumnDialog({ 
+                    open: true, 
+                    column: nextColumn.column, 
+                    percentage: nextColumn.percentage,
+                    isImportant: importantColumns.includes(nextColumn.column)
+                  })
+                  setMissingValueAction("removeRows") // Reset to default
+                } else {
+                  // No more columns with missing values, proceed with preprocessing
                   setDeleteColumnDialog({ open: false, column: "", percentage: 0, isImportant: false })
-                  // Don't auto-navigate, let user click Preprocess Data button
+                  setMissingValueAction("removeRows") // Reset to default
+                  // Trigger preprocessing
+                  performPreprocessing()
+                }
                 }}
-                className="bg-red-600 hover:bg-red-700"
+              className="w-full sm:w-auto bg-black hover:bg-gray-800"
               >
-                Delete Column
+              Continue
               </AlertDialogAction>
-            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Upload Warning Dialog */}
+      <AlertDialog open={showUploadWarning} onOpenChange={setShowUploadWarning}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="h-5 w-5" />
+              Upload in Progress
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-700">
+              Your file is currently being uploaded. Please wait and do not:
+              <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
+                <li>Refresh the page</li>
+                <li>Navigate away</li>
+                <li>Go back</li>
+              </ul>
+              <p className="mt-3 font-medium">Please wait for the upload to complete.</p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={() => setShowUploadWarning(false)}
+              className="w-full sm:w-auto bg-black hover:bg-gray-800"
+            >
+              OK, I'll Wait
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -1502,19 +1649,6 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
       {currentStep === 3 && (
         <div className="flex flex-col flex-1 overflow-hidden bg-white">
           <div className="flex-1 overflow-y-auto p-6">
-          
-          {/* Upload Button on Top */}
-          <div className="flex justify-end mb-6">
-            <form onSubmit={handleSubmit}>
-              <Button
-                type="submit"
-                disabled={uploading}
-                className="bg-black text-white px-4 py-2 rounded"
-              >
-                {uploading ? "Uploading..." : "Upload Processed File"}
-              </Button>
-            </form>
-          </div>
 
           <div className="max-w-full mx-auto space-y-6">
 
@@ -1525,8 +1659,8 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
 
                   {/* Card 1: Data Statistics */}
-                  <div className="bg-white rounded-lg shadow p-4 flex flex-col space-y-2 text-black">
-                    <h2 className="text-md font-semibold mb-2 border-b border-gray-300 pb-1">Data Statistics</h2>
+                  <div className="bg-white rounded-lg border border-gray-200 p-5 flex flex-col space-y-2 text-black">
+                    <h2 className="text-lg font-bold mb-3 text-gray-900">Data Statistics</h2>
                     <p><strong>Final Rows:</strong> {dq.totalRows}</p>
                     <p><strong>Final Columns:</strong> {dq.totalColumns}</p>
                     <p><strong>Empty Rows:</strong> {dq.emptyRowCount}</p>
@@ -1535,8 +1669,8 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
                   </div>
 
                   {/* Card 2: Data Improvements */}
-                  <div className="bg-white rounded-lg shadow p-4 flex flex-col space-y-2 text-black">
-                    <h2 className="text-md font-semibold mb-2 border-b border-gray-300 pb-1">Data Improvements</h2>
+                  <div className="bg-white rounded-lg border border-gray-200 p-5 flex flex-col space-y-2 text-black">
+                    <h2 className="text-lg font-bold mb-3 text-gray-900">Data Improvements</h2>
                     <ul className="list-disc ml-4">
                       {aiEmailColumns.map((col, idx) => (
                         <li key={typeof col === "string" ? col : col.name ?? idx}>
@@ -1555,28 +1689,51 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
                         </li>
                         )}
                         {dq.duplicateCount > 0 && <li>{dq.duplicateCount} duplicate rows removed</li>}
-                        {dq.lowValueColumns.length > 0 && (
-                          <li>
-                          Low-value columns removed (&gt;30% missing):{" "}
-                          {dq.lowValueColumns.map((col) => `"${col}"`).join(", ")}
-                          </li>
-                        )}
-                        {importantColumns.length > 0 &&
-                          dq.lowValueColumns.some((col) => importantColumns.includes(col)) && (
-                          <li className="text-red-600">
-                          Warning: Some important columns were removed due to high missing values. Please check your data and consider re-submitting after fixing missing values.
-                          </li>
-                        )}
                     </ul>
                   </div>
 
                     {/* Card 3: Data Quality Chart */}
-                    <div className="bg-white rounded-lg shadow p-4 flex flex-col items-center text-black">
-                    <h2 className="text-md font-semibold mb-2 border-b border-gray-300 pb-1">Data Quality Chart</h2>
+                    <div className="bg-white rounded-lg border border-gray-200 p-5 flex flex-col items-center text-black">
+                    <h2 className="text-lg font-bold mb-3 text-gray-900">Data Quality Chart</h2>
                     {pieData && (
                       <div className="w-full flex justify-center">
                       <div style={{ width: 220, height: 220 }}>
-                        <Pie data={pieData} />
+                        <Pie 
+                          data={pieData} 
+                          options={{
+                            plugins: {
+                              legend: {
+                                position: 'bottom',
+                                labels: {
+                                  padding: 15,
+                                  font: {
+                                    size: 12,
+                                    weight: 500
+                                  },
+                                  usePointStyle: true,
+                                  pointStyle: 'circle'
+                                }
+                              },
+                              tooltip: {
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                padding: 12,
+                                titleFont: {
+                                  size: 14,
+                                  weight: 'bold'
+                                },
+                                bodyFont: {
+                                  size: 13
+                                },
+                                borderColor: 'rgba(255, 255, 255, 0.1)',
+                                borderWidth: 1,
+                                cornerRadius: 8,
+                                displayColors: true
+                              }
+                            },
+                            responsive: true,
+                            maintainAspectRatio: true
+                          }}
+                        />
                       </div>
                       </div>
                     )}
@@ -1660,9 +1817,9 @@ export function FileUploadScreen({ onBack, onSubmit, folderId }: FileUploadScree
               </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2 sm:gap-0">
-            <AlertDialogCancel className="border-gray-300">Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmPreprocess} className="bg-black hover:bg-gray-800 text-white">
+          <AlertDialogFooter className="flex flex-col sm:flex-row gap-3">
+            <AlertDialogCancel className="w-full sm:w-auto border-gray-300">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmPreprocess} className="w-full sm:w-auto bg-black hover:bg-gray-800 text-white">
               Continue
             </AlertDialogAction>
           </AlertDialogFooter>
