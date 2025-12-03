@@ -216,11 +216,20 @@ export function KPIChart({
 
     // Different color palettes for different chart types
     // Color palette for bar charts - choose random color
-    const barColorOptions = ['#f18585', '#f49c9c', '#f6aeae', '#f8cacf', '#d5a8f2', '#cb90f1', '#c174f2'];
+    const barColorOptions = ['#658e64', '#e29578', '#bf8d54', '#d462a5', '#8f3cfe', '#f2002b', '#613dc1'];
     // Color palette for line charts - choose random color
     const lineColorOptions = ['#f5cb00', '#f6d220', '#f8d840', '#f9df60', '#fae580'];
-    // Color palette for pie and donut charts - use from light to dark
-    const pieColors = ['#03045e', '#023e8a', '#0077b6', '#0096c7', '#00b4d8', '#48cae4', '#90e0ef', '#ade8f4', '#caf0f8'];
+    // Color palette themes for pie and donut charts - use metricIndex to assign different themes
+    const pieColorThemes = [
+      ["#f18585","#f49c9c","#f6aeae","#f8cacf","#eed5fb","#e4bef8","#d5a8f2","#cb90f1","#c174f2"], 
+      ["#f6bd60","#f7d5a1","#f7ede2","#f6dcd3","#f5cac3","#bdb8b0","#84a59d","#bb9590","#f28482"], 
+      ["#0081a7","#0098b0","#00afb9","#7fd6cb","#fdfcdc","#feebca","#fed9b7","#f7a58f","#f07167"] 
+    ];
+    // Use metricIndex to cycle through themes for different pie charts, fallback to random if no index
+    const themeIndex = metricIndex !== undefined 
+      ? metricIndex % pieColorThemes.length 
+      : Math.floor(Math.random() * pieColorThemes.length);
+    const pieColors = pieColorThemes[themeIndex];
     
     // Use different colors based on chart type
     let colors;
@@ -554,11 +563,20 @@ export function KPIChart({
   // Fallback to original data processing
   const generateChartDataFromOriginal = () => {
     // Color palette for bar charts - choose random color
-    const barColorOptions = ['#f18585', '#f49c9c', '#f6aeae', '#f8cacf', '#d5a8f2', '#cb90f1', '#c174f2'];
+    const barColorOptions = ['#658e64', '#e29578', '#bf8d54', '#d462a5', '#8f3cfe', '#f2002b', '#613dc1'];
     // Color palette for line charts - choose random color
     const lineColorOptions = ['#f5cb00', '#f6d220', '#f8d840', '#f9df60', '#fae580'];
-    // Color palette for pie and donut charts - use from light to dark
-    const pieColors = ['#03045e', '#023e8a', '#0077b6', '#0096c7', '#00b4d8', '#48cae4', '#90e0ef', '#ade8f4', '#caf0f8'];
+    // Color palette themes for pie and donut charts - use metricIndex to assign different themes
+    const pieColorThemes = [
+      ['#03045e', '#023e8a', '#0077b6', '#0096c7', '#00b4d8', '#48cae4', '#90e0ef', '#ade8f4', '#caf0f8'], // Blue theme (original)
+      ['#916d47', '#9f784e', '#af8456', '#c0915f', '#d39f69', '#e8af73', '#ffc07f', '#ffc88c', '#ffcf99'], // Brown/beige theme
+      ['#590d22', '#800f2f', '#a4133c', '#c9184a', '#ff4d6d', '#ff758f', '#ff8fa3', '#ffb3c1', '#ffccd5']  // Red/pink theme
+    ];
+    // Use metricIndex to cycle through themes for different pie charts, fallback to random if no index
+    const themeIndex = metricIndex !== undefined 
+      ? metricIndex % pieColorThemes.length 
+      : Math.floor(Math.random() * pieColorThemes.length);
+    const pieColors = pieColorThemes[themeIndex];
     
     if (!data || !Array.isArray(data) || data.length === 0) {
       // Return null to show skeleton loading instead of dummy data
