@@ -469,23 +469,25 @@ export default function FileAnalyticsPage() {
               </div> */}
 
               {/* KPI Charts Grid */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
                 {kpiAnalysis.metrics.map((metric, index) => (
-                  <KPIChart
-                    key={`chart-${index}`}
-                    title={metric.name}
-                    description={metric.description}
-                    chartType={metric.chartType as any}
-                    data={csvData as any}
-                    chartConfig={metric.chartConfig}
-                    sqlQuery={metric.sqlQuery}
-                    xAxisQuery={metric.xAxisQuery}
-                    category={metric.category}
-                    showDeleteButton={true}
-                    onDelete={() => setDeletingMetricIndex(index)}
-                    kpiAnalysisId={fileDetails?.kpi_analysis_id}
-                    metricIndex={index}
-                  />
+                  <div key={`chart-wrapper-${index}`} className="flex">
+                    <KPIChart
+                      key={`chart-${index}`}
+                      title={metric.name}
+                      description={metric.description}
+                      chartType={metric.chartType as any}
+                      data={csvData as any}
+                      chartConfig={metric.chartConfig}
+                      sqlQuery={metric.sqlQuery}
+                      xAxisQuery={metric.xAxisQuery}
+                      category={metric.category}
+                      showDeleteButton={true}
+                      onDelete={() => setDeletingMetricIndex(index)}
+                      kpiAnalysisId={fileDetails?.kpi_analysis_id}
+                      metricIndex={index}
+                    />
+                  </div>
                 ))}
               </div>
             </>

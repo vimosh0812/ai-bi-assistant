@@ -209,11 +209,24 @@ export async function POST(req: Request) {
     
     TIME-SERIES CHART RULES:
     - For DATE columns: Generate LINE charts with time on X-axis
+    - Use LINE charts when there are MORE THAN 3 months OR MORE THAN 3 years of data
+    - Use BAR charts when there are 3 or fewer time periods (for better readability)
+    - For monthly data with 4+ months: Use LINE chart to show continuous trend
+    - For yearly data with 4+ years: Use LINE chart to show continuous trend
+    - For 2-3 months or 2-3 years: Use BAR chart for better comparison
     - Prioritize YEARLY analysis over monthly analysis to avoid redundancy
     - Only create monthly analysis if it provides significantly different insights
     - Use SQL functions: YEAR(date_column), MONTH(date_column)
     - Group by time periods and aggregate metrics
     - Focus on years primarily, months only when necessary for detailed trends
+    
+    OLAP (Online Analytical Processing) FEATURES:
+    - For monthly data spanning multiple months, consider QUARTER-based aggregation (Q1, Q2, Q3, Q4)
+    - Quarter aggregation provides better trend visualization for longer time periods
+    - Use quarter queries when you have 6+ months of data to show quarterly trends
+    - Format quarter labels as "2021 Q1", "2021 Q2", etc.
+    - Quarter SQL: GROUP BY year, CASE WHEN month <= 3 THEN 1 WHEN month <= 6 THEN 2 WHEN month <= 9 THEN 3 ELSE 4 END
+    - Quarter aggregation helps identify seasonal patterns and business cycles
     
     PIE CHART RULES:
     - For CATEGORICAL columns (≤10 unique values): Generate PIE or DOUGHNUT charts
@@ -288,7 +301,7 @@ export async function POST(req: Request) {
             "xAxis": "[categorical_column_name]",
             "yAxis": "[continuous_column_name]", 
             "groupBy": "[categorical_column_name]",
-               "colors": ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E9"],
+               "colors": ["#45B7D1", "#96CEB4", "#FF6B6B", "#4ECDC4"],
             "dataLabels": true
           },
           "category": "financial|operational|customer|growth|efficiency|churn|roi|otif"
@@ -335,12 +348,31 @@ export async function POST(req: Request) {
     TIME-SERIES SQL GUIDELINES (PostgreSQL with preprocessed date columns):
     - For yearly analysis: GROUP BY CAST(Date_year AS NUMERIC), ORDER BY CAST(Date_year AS NUMERIC)
     - For monthly analysis: GROUP BY CAST(Date_year AS NUMERIC), CAST(Date_month AS NUMERIC), ORDER BY CAST(Date_year AS NUMERIC), CAST(Date_month AS NUMERIC)
+    - For quarterly analysis (OLAP): 
+      SELECT CAST(Date_year AS NUMERIC) as year,
+             CASE 
+               WHEN CAST(Date_month AS NUMERIC) <= 3 THEN 1
+               WHEN CAST(Date_month AS NUMERIC) <= 6 THEN 2
+               WHEN CAST(Date_month AS NUMERIC) <= 9 THEN 3
+               ELSE 4
+             END as quarter,
+             SUM(CAST(value_column AS NUMERIC)) as total_value
+      FROM data
+      GROUP BY CAST(Date_year AS NUMERIC), 
+               CASE 
+                 WHEN CAST(Date_month AS NUMERIC) <= 3 THEN 1
+                 WHEN CAST(Date_month AS NUMERIC) <= 6 THEN 2
+                 WHEN CAST(Date_month AS NUMERIC) <= 9 THEN 3
+                 ELSE 4
+               END
+      ORDER BY year, quarter
     - For daily analysis: GROUP BY CAST(Date_year AS NUMERIC), CAST(Date_month AS NUMERIC), CAST(Date_day AS NUMERIC)
     - Use preprocessed columns: Date_year, Date_month, Date_day (all stored as TEXT, cast to NUMERIC)
     - Use PostgreSQL date functions when needed: EXTRACT(YEAR FROM date), EXTRACT(MONTH FROM date)
     - Prefer yearly analysis unless monthly reveals significantly different insights
+    - Use quarterly aggregation when you have 6+ months of data for better trend visualization
     - Avoid creating redundant metrics - choose the most meaningful time granularity
-    - Avoid daily granularity - focus on years primarily, months when necessary
+    - Avoid daily granularity - focus on years primarily, months/quarters when necessary
     
     PIE CHART SQL GUIDELINES:
     - For categorical data: SELECT categorical_column, COUNT(*) as count FROM data GROUP BY categorical_column

@@ -761,19 +761,21 @@ export default function AnalyticsPage() {
                   {/* Charts Dashboard */}
                   <div className="space-y-8">
                     <h3 className="text-xl font-semibold text-gray-900 mb-6">Data Visualizations</h3>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
                       {kpiAnalysis.metrics.map((metric, index) => (
-                        <KPIChart
-                          key={`chart-${index}`}
-                          title={metric.name}
-                          description={metric.description}
-                          chartType={metric.chartType as any}
-                          data={rawData}
-                          chartConfig={metric.chartConfig}
-                          sqlQuery={metric.sqlQuery}
-                          xAxisQuery={metric.xAxisQuery}
-                          category={metric.category}
-                        />
+                        <div key={`chart-wrapper-${index}`} className="flex">
+                          <KPIChart
+                            key={`chart-${index}`}
+                            title={metric.name}
+                            description={metric.description}
+                            chartType={metric.chartType as any}
+                            data={rawData}
+                            chartConfig={metric.chartConfig}
+                            sqlQuery={metric.sqlQuery}
+                            xAxisQuery={metric.xAxisQuery}
+                            category={metric.category}
+                          />
+                        </div>
                       ))}
                     </div>
                   </div>
