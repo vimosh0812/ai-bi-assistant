@@ -236,101 +236,103 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // --- Calculate MIN/MAX and Unique Values from FULL TABLE using SQL (if not cached) ---
+    // --- Calculate MIN/MAX and Unique Values from FULL TABLE using SQL (ONLY if not cached) ---
     // This ensures accurate min/max values and unique value counts regardless of table size
     const columnMinMax: Record<string, { min: number | null; max: number | null }> = {};
     const columnUniqueValues: Record<string, any[]> = {};
     const columnUniqueCounts: Record<string, number> = {};
     
     if (!useCachedData) {
-      console.log("🔄 Calculating column analysis from full table...");
+      console.log("🔄 Calculating column analysis from full table (not cached)...");
       
       for (const colName of sanitizedColumnNames) {
-      try {
-        // Get unique values count from full table
-        const { data: uniqueCountData } = await supabase.rpc("exec_sql_with_result", {
-          query: `SELECT COUNT(DISTINCT ${colName}) AS unique_count FROM "${actualTableName}" WHERE ${colName} IS NOT NULL AND ${colName} != ''`
-        });
-        
-        if (uniqueCountData && Array.isArray(uniqueCountData) && uniqueCountData.length > 0) {
-          columnUniqueCounts[colName] = Number(uniqueCountData[0]?.unique_count || 0);
-        }
-        
-        // Get unique values if count <= 15 (for categorical columns)
-        if (columnUniqueCounts[colName] <= 15) {
-          const { data: uniqueValuesData } = await supabase.rpc("exec_sql_with_result", {
-            query: `SELECT DISTINCT ${colName} AS value FROM "${actualTableName}" WHERE ${colName} IS NOT NULL AND ${colName} != '' ORDER BY ${colName}`
+        try {
+          // Get unique values count from full table
+          const { data: uniqueCountData } = await supabase.rpc("exec_sql_with_result", {
+            query: `SELECT COUNT(DISTINCT ${colName}) AS unique_count FROM "${actualTableName}" WHERE ${colName} IS NOT NULL AND ${colName} != ''`
           });
           
-          if (uniqueValuesData && Array.isArray(uniqueValuesData)) {
-            columnUniqueValues[colName] = uniqueValuesData.map(row => row.value);
+          if (uniqueCountData && Array.isArray(uniqueCountData) && uniqueCountData.length > 0) {
+            columnUniqueCounts[colName] = Number(uniqueCountData[0]?.unique_count || 0);
           }
+          
+          // Get unique values if count <= 15 (for categorical columns)
+          if (columnUniqueCounts[colName] <= 15) {
+            const { data: uniqueValuesData } = await supabase.rpc("exec_sql_with_result", {
+              query: `SELECT DISTINCT ${colName} AS value FROM "${actualTableName}" WHERE ${colName} IS NOT NULL AND ${colName} != '' ORDER BY ${colName}`
+            });
+            
+            if (uniqueValuesData && Array.isArray(uniqueValuesData)) {
+              columnUniqueValues[colName] = uniqueValuesData.map(row => row.value);
+            }
+          }
+          
+          // Try to get min/max for numeric columns
+          const { data: minMaxData } = await supabase.rpc("exec_sql_with_result", {
+            query: `SELECT MIN(CAST(${colName} AS NUMERIC)) AS min_val, MAX(CAST(${colName} AS NUMERIC)) AS max_val FROM "${actualTableName}" WHERE ${colName} IS NOT NULL AND ${colName} != '' AND CAST(${colName} AS NUMERIC) IS NOT NULL`
+          });
+          
+          if (minMaxData && Array.isArray(minMaxData) && minMaxData.length > 0) {
+            const result = minMaxData[0];
+            if (result.min_val !== null && result.max_val !== null && !isNaN(result.min_val) && !isNaN(result.max_val)) {
+              columnMinMax[colName] = {
+                min: Number(result.min_val),
+                max: Number(result.max_val)
+              };
+            }
+          }
+        } catch (err) {
+          // Column might not be numeric, skip min/max but still try unique values
+          console.log(`Column ${colName} min/max calculation failed, continuing...`);
+        }
+      }
+      
+      // --- Analyze Columns using sample data for type classification ---
+      // Use sample data for type classification, but override with full table data
+      const tempColumnAnalysis = analyzeColumnValues(sampleDataArray, sanitizedColumnNames);
+      
+      // Override with values from full table
+      Object.keys(tempColumnAnalysis).forEach(colName => {
+        // Override unique count from full table
+        if (columnUniqueCounts[colName] !== undefined) {
+          tempColumnAnalysis[colName].uniqueValues = columnUniqueCounts[colName];
         }
         
-        // Try to get min/max for numeric columns
-        const { data: minMaxData } = await supabase.rpc("exec_sql_with_result", {
-          query: `SELECT MIN(CAST(${colName} AS NUMERIC)) AS min_val, MAX(CAST(${colName} AS NUMERIC)) AS max_val FROM "${actualTableName}" WHERE ${colName} IS NOT NULL AND ${colName} != '' AND CAST(${colName} AS NUMERIC) IS NOT NULL`
-        });
-        
-        if (minMaxData && Array.isArray(minMaxData) && minMaxData.length > 0) {
-          const result = minMaxData[0];
-          if (result.min_val !== null && result.max_val !== null && !isNaN(result.min_val) && !isNaN(result.max_val)) {
-            columnMinMax[colName] = {
-              min: Number(result.min_val),
-              max: Number(result.max_val)
-            };
-          }
+        // Override unique values if we have them from full table (for categorical <=15)
+        if (columnUniqueValues[colName] && columnUniqueValues[colName].length > 0) {
+          tempColumnAnalysis[colName].sampleValues = columnUniqueValues[colName];
         }
-      } catch (err) {
-        // Column might not be numeric, skip min/max but still try unique values
-        console.log(`Column ${colName} min/max calculation failed, continuing...`);
-      }
-    }
-    
-    // --- Analyze Columns using sample data for type classification ---
-    // Use sample data for type classification, but override with full table data
-    const tempColumnAnalysis = analyzeColumnValues(sampleDataArray, sanitizedColumnNames);
-    
-    // Override with values from full table
-    Object.keys(tempColumnAnalysis).forEach(colName => {
-      // Override unique count from full table
-      if (columnUniqueCounts[colName] !== undefined) {
-        tempColumnAnalysis[colName].uniqueValues = columnUniqueCounts[colName];
-      }
+        
+        // Override min/max with values from full table
+        if (columnMinMax[colName]) {
+          tempColumnAnalysis[colName].valueRange = columnMinMax[colName];
+        }
+      });
       
-      // Override unique values if we have them from full table (for categorical <=15)
-      if (columnUniqueValues[colName] && columnUniqueValues[colName].length > 0) {
-        tempColumnAnalysis[colName].sampleValues = columnUniqueValues[colName];
+      columnAnalysis = tempColumnAnalysis;
+      
+      // --- Cache the analysis in files.ai_summary (ONLY if we calculated it) ---
+      try {
+        const analysisCache = {
+          tableName: actualTableName,
+          totalRows: totalRows,
+          columnAnalysis: columnAnalysis,
+          cachedAt: new Date().toISOString()
+        };
+        
+        await supabase
+          .from("files")
+          .update({ ai_summary: analysisCache })
+          .eq("id", fileId)
+          .eq("user_id", user.id);
+        
+        console.log("💾 Cached column analysis to files.ai_summary");
+      } catch (cacheError) {
+        console.error("Failed to cache analysis:", cacheError);
+        // Continue even if caching fails
       }
-      
-      // Override min/max with values from full table
-      if (columnMinMax[colName]) {
-        tempColumnAnalysis[colName].valueRange = columnMinMax[colName];
-      }
-    });
-    
-    columnAnalysis = tempColumnAnalysis;
-    
-    // --- Cache the analysis in files.ai_summary ---
-    try {
-      const analysisCache = {
-        tableName: actualTableName,
-        totalRows: totalRows,
-        columnAnalysis: columnAnalysis,
-        cachedAt: new Date().toISOString()
-      };
-      
-      await supabase
-        .from("files")
-        .update({ ai_summary: analysisCache })
-        .eq("id", fileId)
-        .eq("user_id", user.id);
-      
-      console.log("💾 Cached column analysis to files.ai_summary");
-    } catch (cacheError) {
-      console.error("Failed to cache analysis:", cacheError);
-      // Continue even if caching fails
-    }
+    } else {
+      console.log("✅ Using cached column analysis - skipping calculation and cache update");
     }
     
     // Log analysis for debugging
@@ -463,7 +465,13 @@ Return ONLY one word: "sql_needed" or "context_only"`
       ? sampleDataArray.map((row, i) => `${i + 1}. ${JSON.stringify(row)}`).join("\n")
       : "No sample data available";
 
-    const systemPrompt = `You are an expert data analyst assistant with access to PostgreSQL table "${actualTableName}".
+    const systemPrompt = `You are a friendly, conversational data analyst assistant with access to PostgreSQL table "${actualTableName}".
+
+Your communication style:
+- Be conversational, friendly, and natural - like chatting with a colleague
+- When showing tables, introduce them naturally (e.g., "Here's what I found:" or "Let me show you:")
+- Answer questions in a way that feels like a real conversation, not just data output
+- Be helpful and engaging
 
 Dataset Information:
 - File Name: ${file.name}
@@ -515,15 +523,48 @@ SQL QUERY RULES:
 
 ${needsSQL ? `The user's question requires a SQL query. Generate a PostgreSQL SQL query to answer it.
 
+IMPORTANT: Your response should be CONVERSATIONAL and NATURAL, as if you're having a friendly conversation with the user.
+- Start with a natural, conversational response to their question
+- Explain what you found in a friendly, engaging way
+- When showing a table, introduce it conversationally (e.g., "Here's what I found:" or "Let me show you the results:")
+- Make it feel like a real conversation, not just data output
+- Example: "The maximum age in the dataset is 64. Here's the breakdown:" [then show table]
+
 Available Columns:
 ${sanitizedColumnNames.map((col: string) => `- ${col}`).join('\n')}
 
-Answer in JSON format:
+CRITICAL: You MUST return ONLY valid JSON. Do NOT include any explanatory text, markdown, or code blocks outside the JSON.
+
+Answer in JSON format ONLY (no other text):
 {
   "sql": "SELECT ... FROM \"${actualTableName}\" ...",
-  "explanation": "Brief explanation of what the query does and the answer",
-  "needsSQL": true
+  "explanation": "A conversational, natural response that answers the user's question. Start with a friendly answer, then mention that you're showing the results in a table below. Make it feel like a real conversation. Example: 'The maximum age in your dataset is 64 years old. Here's the breakdown:'",
+  "needsSQL": true,
+  "chartConfig": {
+    "type": "bar|line|pie|area|donut|scatter",
+    "title": "Chart Title",
+    "xAxis": "column_name_for_x_axis",
+    "yAxis": "column_name_for_y_axis"
+  }
 }
+
+CHART GENERATION:
+- If the user asks for a chart or visualization, include a "chartConfig" object in your response
+- Chart types: "bar", "line", "pie", "area", "donut", "scatter"
+- xAxis: column name for X-axis (use categorical columns)
+- yAxis: column name for Y-axis (use numeric/continuous columns)
+- Only include chartConfig if the user explicitly asks for a chart/visualization
+- If no chart is requested, set chartConfig to null or omit it
+
+CRITICAL FORMATTING RULES:
+- Return ONLY the JSON object, nothing else
+- No markdown code blocks (no triple backticks with json or sql)
+- No explanatory text before or after the JSON
+- No separate SQL code blocks - put SQL in the "sql" field
+- No separate chartConfig code blocks - put chartConfig in the "chartConfig" field
+- Start your response with { and end with }
+- Example of CORRECT format: {"sql": "SELECT...", "explanation": "...", "needsSQL": true, "chartConfig": {...}}
+- Example of WRONG format: "Sure! Here's the SQL: [code block] SELECT... [end code block] and chart: [code block] {...} [end code block]"
 
 CRITICAL SQL RULES:
 - Column names: Use WITHOUT quotes (age, not "age")
@@ -536,16 +577,34 @@ CRITICAL SQL RULES:
 - Use proper PostgreSQL syntax
 - Return valid JSON only` : `The user's question can be answered from context without a SQL query.
 
-Provide a professional, detailed, and insightful analysis. Don't just list facts - provide meaningful insights about the data structure, patterns, and what the data represents.
+CRITICAL: You MUST return ONLY valid JSON. Do NOT include any explanatory text, markdown formatting, or code blocks outside the JSON object.
 
-Answer in JSON format:
+IMPORTANT: Your response should be CONVERSATIONAL and NATURAL, as if you're having a friendly conversation with the user.
+- Be friendly and engaging
+- Format column names as **COLUMN_NAME** (uppercase, bold)
+- For each column:
+  * **COLUMN_NAME**: [unique count] unique values
+  * For numeric columns: Include MIN and MAX values (e.g., "ranging from MIN to MAX")
+  * For categorical columns: List the unique values if <=15, or mention sample if >15
+- Keep each column description to 1-2 sentences maximum
+- Focus on key facts only - avoid verbose explanations
+- Write naturally, as if explaining to a friend
+
+Answer in JSON format ONLY (no other text):
 {
   "sql": null,
-  "explanation": "Your answer based on the data context provided above",
+  "explanation": "A conversational, natural response that answers the user's question in a friendly, engaging way. Format column names as **COLUMN_NAME**.",
   "needsSQL": false
 }
 
-Provide a helpful answer based on the column information, sample data, and analysis provided.`}`;
+CRITICAL FORMATTING RULES:
+- Return ONLY the JSON object, nothing else
+- No markdown code blocks
+- No explanatory text before or after the JSON
+- Start your response with { and end with }
+- Example: {"sql": null, "explanation": "...", "needsSQL": false}
+
+Provide a helpful, conversational answer based on the column information, sample data, and analysis provided.`}`;
 
     // Log what we're sending to AI (especially min/max values)
     console.log("═══════════════════════════════════════════════════════════");
@@ -610,9 +669,21 @@ Provide a helpful answer based on the column information, sample data, and analy
     }
 
     let rawResponse = openaiData.choices[0]?.message?.content || "{}";
+    
+    // Log the raw AI output for debugging
+    console.log("═══════════════════════════════════════════════════════════");
+    console.log("📤 [AI Raw Output] Complete Response:");
+    console.log("═══════════════════════════════════════════════════════════");
+    console.log(rawResponse);
+    console.log("═══════════════════════════════════════════════════════════");
+    
     rawResponse = rawResponse.replace(/^```json\s*/, "").replace(/```$/, "").trim();
 
-    let parsed: { sql: string | null; explanation: string; needsSQL?: boolean; chartConfig?: any };
+    let parsed: { sql: string | null; explanation: string; needsSQL?: boolean; chartConfig?: any } = {
+      sql: null,
+      explanation: "",
+      needsSQL: false
+    };
     let retryTokens = { prompt: 0, completion: 0, total: 0, cost: 0 };
     
     try {
@@ -624,14 +695,47 @@ Provide a helpful answer based on the column information, sample data, and analy
       // Try multiple strategies to extract JSON
       let jsonFound = false;
       
-      // Strategy 1: Try to find JSON object in the response
-      const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
+      // Strategy 1: Find JSON object using brace counting (handles nested objects correctly)
+      // Try from the end first (most likely location for the actual JSON response)
+      let braceCount = 0;
+      let jsonEnd = -1;
+      let jsonStart = -1;
+      const candidates: Array<{ start: number; end: number; json: string }> = [];
+      
+      // First pass: collect all potential JSON objects by counting braces
+      for (let i = 0; i < rawResponse.length; i++) {
+        const char = rawResponse[i];
+        if (char === '{') {
+          if (braceCount === 0) {
+            jsonStart = i;
+          }
+          braceCount++;
+        } else if (char === '}') {
+          braceCount--;
+          if (braceCount === 0 && jsonStart !== -1) {
+            jsonEnd = i;
+            const jsonCandidate = rawResponse.substring(jsonStart, jsonEnd + 1);
+            candidates.push({ start: jsonStart, end: jsonEnd, json: jsonCandidate });
+            jsonStart = -1;
+            jsonEnd = -1;
+          }
+        }
+      }
+      
+      // Try candidates from end to start (prefer the last one, which is likely the actual response)
+      for (let i = candidates.length - 1; i >= 0; i--) {
+        const candidate = candidates[i];
         try {
-          parsed = JSON.parse(jsonMatch[0]);
-          jsonFound = true;
+          const testParsed = JSON.parse(candidate.json);
+          // Validate it has the expected structure
+          if (testParsed && (testParsed.sql !== undefined || testParsed.explanation !== undefined || testParsed.needsSQL !== undefined)) {
+            parsed = testParsed;
+            jsonFound = true;
+            console.log("✅ Strategy 1: Found valid JSON object using brace matching");
+            break;
+          }
         } catch (e) {
-          console.log("Strategy 1 failed, trying strategy 2...");
+          // Not valid JSON, continue to next candidate
         }
       }
       
@@ -643,7 +747,54 @@ Provide a helpful answer based on the column information, sample data, and analy
             parsed = JSON.parse(codeBlockMatch[1]);
             jsonFound = true;
           } catch (e) {
-            console.log("Strategy 2 failed, trying strategy 3...");
+            console.log("Strategy 2 failed, trying strategy 2b...");
+          }
+        }
+      }
+      
+      // Strategy 2b: Extract SQL and chartConfig from separate code blocks and build JSON
+      if (!jsonFound) {
+        const sqlMatch = rawResponse.match(/```sql\s*([\s\S]*?)\s*```/i);
+        const jsonConfigMatch = rawResponse.match(/```json\s*(\{[\s\S]*?\})\s*```/i);
+        
+        if (sqlMatch || jsonConfigMatch) {
+          try {
+            let extractedSql = sqlMatch ? sqlMatch[1].trim() : null;
+            let extractedChartConfig = null;
+            
+            if (jsonConfigMatch) {
+              try {
+                extractedChartConfig = JSON.parse(jsonConfigMatch[1]);
+              } catch (e) {
+                console.log("Could not parse chartConfig JSON:", e);
+              }
+            }
+            
+            // Extract explanation from the text (before the code blocks)
+            let extractedExplanation = rawResponse.split('```')[0].trim();
+            // Remove common conversational prefixes
+            extractedExplanation = extractedExplanation.replace(/^(Sure!|Let me|I'll|I will|To|Here's|Here is|This will)[\s,:-]*/i, '').trim();
+            if (extractedExplanation.length > 500) {
+              extractedExplanation = extractedExplanation.substring(0, 500) + "...";
+            }
+            if (!extractedExplanation || extractedExplanation.length < 10) {
+              extractedExplanation = "Here's the analysis:";
+            }
+            
+            parsed = {
+              sql: extractedSql,
+              explanation: extractedExplanation,
+              needsSQL: !!extractedSql,
+              chartConfig: extractedChartConfig
+            };
+            
+            console.log("✅ Strategy 2b: Extracted SQL and chartConfig from code blocks");
+            console.log("   - SQL extracted:", !!extractedSql, extractedSql ? `(${extractedSql.substring(0, 50)}...)` : "");
+            console.log("   - ChartConfig extracted:", !!extractedChartConfig, extractedChartConfig ? JSON.stringify(extractedChartConfig) : "");
+            console.log("   - Explanation:", extractedExplanation.substring(0, 100));
+            jsonFound = true;
+          } catch (e) {
+            console.log("Strategy 2b failed:", e);
           }
         }
       }
@@ -656,37 +807,54 @@ Provide a helpful answer based on the column information, sample data, and analy
             ? rawResponse.substring(0, 1500) + "... [truncated]" 
             : rawResponse;
           
-          const retryResp = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "gpt-4o-mini",
-              messages: [
+      const retryResp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
                 { 
                   role: "system", 
-                  content: "You are a JSON extractor. Extract ONLY the JSON object from the user's message. Return ONLY valid JSON, nothing else. If there's no JSON, return {\"sql\": null, \"explanation\": \"Unable to parse response\", \"needsSQL\": false}" 
+                  content: `You are a JSON extractor. Convert the user's message into valid JSON format.
+                  
+If the message contains SQL and chartConfig in code blocks, extract them and create:
+{
+  "sql": "extracted SQL query",
+  "explanation": "conversational explanation from the text",
+  "needsSQL": true,
+  "chartConfig": {extracted chart config if present}
+}
+
+If the message is just conversational text (no SQL), create:
+{
+  "sql": null,
+  "explanation": "the conversational text as-is",
+  "needsSQL": false
+}
+
+Return ONLY valid JSON, nothing else.` 
                 },
                 { 
                   role: "user", 
-                  content: `Extract the JSON from this response: ${truncatedResponse}` 
+                  content: `Convert this response to JSON format: ${truncatedResponse}` 
                 },
               ],
-              max_tokens: 400,
-              temperature: 0,
-            }),
-          });
+              max_tokens: 600,
+          temperature: 0,
+        }),
+      });
           
           if (!retryResp.ok) {
             throw new Error("Retry request failed");
           }
           
-          const retryData = await retryResp.json();
+      const retryData = await retryResp.json();
           
-          // Log token usage for retry
-          if (retryData.usage) {
+      // Log token usage for retry
+      if (retryData.usage) {
             retryTokens = {
               prompt: retryData.usage.prompt_tokens || 0,
               completion: retryData.usage.completion_tokens || 0,
@@ -712,15 +880,38 @@ Provide a helpful answer based on the column information, sample data, and analy
       
       // Final fallback if all strategies fail
       if (!jsonFound) {
+        // For context-only responses, use the raw response as explanation
+        let fallbackExplanation = rawResponse || "I couldn't parse the response. Please try rephrasing your question.";
+        
+        // Clean up the explanation - remove markdown formatting if present
+        fallbackExplanation = fallbackExplanation
+          .replace(/\*\*([^*]+)\*\*/g, '**$1**') // Keep bold markdown
+          .replace(/```[\s\S]*?```/g, '') // Remove code blocks
+          .trim();
+        
+        // Limit length
+        if (fallbackExplanation.length > 500) {
+          fallbackExplanation = fallbackExplanation.substring(0, 500) + "...";
+        }
+        
         parsed = {
           sql: needsSQL ? null : null,
-          explanation: rawResponse.length > 300 
-            ? rawResponse.substring(0, 300) + "... [response parsing failed, please rephrase your question]" 
-            : (rawResponse || "I couldn't parse the response. Please try rephrasing your question."),
+          explanation: fallbackExplanation,
           needsSQL: needsSQL
         };
+        
+        console.log("⚠️ Using fallback response (could not parse JSON)");
       }
     }
+
+    // Log parsed response for debugging
+    console.log("📋 [Parsed Response] After JSON parsing:");
+    console.log("   - Has SQL:", !!parsed.sql);
+    console.log("   - Has ChartConfig:", !!parsed.chartConfig);
+    if (parsed.chartConfig) {
+      console.log("   - ChartConfig:", JSON.stringify(parsed.chartConfig, null, 2));
+    }
+    console.log("   - Explanation preview:", parsed.explanation?.substring(0, 100) || "none");
 
     // --- Fix SQL if generated ---
     if (parsed.sql) {
@@ -794,6 +985,69 @@ Provide a helpful answer based on the column information, sample data, and analy
         `$1 "${actualTableName}"`
       );
       
+      // Fix ORDER BY for date-based queries (year, month, day)
+      // If query has date_year and date_month, ensure proper ordering
+      if (sqlQuery.match(/date_year|date_month|date_day/i)) {
+        // Check if ORDER BY already exists
+        const hasOrderBy = /ORDER\s+BY/i.test(sqlQuery);
+        
+        if (!hasOrderBy) {
+          // Add ORDER BY for chronological ordering
+          const orderByClause = [];
+          
+          if (sqlQuery.match(/date_year/i)) {
+            orderByClause.push('CAST(date_year AS NUMERIC)');
+          }
+          if (sqlQuery.match(/date_month/i)) {
+            orderByClause.push('CAST(date_month AS NUMERIC)');
+          }
+          if (sqlQuery.match(/date_day/i)) {
+            orderByClause.push('CAST(date_day AS NUMERIC)');
+          }
+          
+          if (orderByClause.length > 0) {
+            sqlQuery += ` ORDER BY ${orderByClause.join(', ')}`;
+            console.log("📅 Added chronological ORDER BY:", orderByClause.join(', '));
+          }
+        } else {
+          // Improve existing ORDER BY to ensure numeric ordering for dates
+          sqlQuery = sqlQuery.replace(
+            /ORDER\s+BY\s+([^;]+)/i,
+            (match: string, orderClause: string) => {
+              // Replace date_year, date_month, date_day with CAST versions if not already cast
+              let improved = orderClause
+                .replace(/\bdate_year\b/gi, 'CAST(date_year AS NUMERIC)')
+                .replace(/\bdate_month\b/gi, 'CAST(date_month AS NUMERIC)')
+                .replace(/\bdate_day\b/gi, 'CAST(date_day AS NUMERIC)');
+              
+              // Ensure date_year comes before date_month, date_month before date_day
+              const parts = improved.split(',').map((p: string) => p.trim());
+              const dateYearIndex = parts.findIndex((p: string) => p.includes('date_year'));
+              const dateMonthIndex = parts.findIndex((p: string) => p.includes('date_month'));
+              const dateDayIndex = parts.findIndex((p: string) => p.includes('date_day'));
+              
+              if (dateYearIndex >= 0 && dateMonthIndex >= 0 && dateYearIndex > dateMonthIndex) {
+                // Reorder: year first, then month, then day
+                const reordered: string[] = [];
+                if (dateYearIndex >= 0) reordered.push(parts[dateYearIndex]);
+                if (dateMonthIndex >= 0) reordered.push(parts[dateMonthIndex]);
+                if (dateDayIndex >= 0) reordered.push(parts[dateDayIndex]);
+                // Add other columns
+                parts.forEach((p: string, i: number) => {
+                  if (i !== dateYearIndex && i !== dateMonthIndex && i !== dateDayIndex) {
+                    reordered.push(p);
+                  }
+                });
+                improved = reordered.join(', ');
+              }
+              
+              return `ORDER BY ${improved}`;
+            }
+          );
+          console.log("📅 Improved ORDER BY for chronological ordering");
+        }
+      }
+      
       // Update parsed.sql with the processed query
       parsed.sql = sqlQuery;
     }
@@ -816,26 +1070,48 @@ Provide a helpful answer based on the column information, sample data, and analy
           sqlResult = Array.isArray(data) ? data : [];
 
           // Generate chart if requested and multiple rows
-        if (parsed.chartConfig && Array.isArray(data) && data.length > 1) {
-          const processedData = data.slice(0, 50);
-          const firstRow = processedData[0] || {};
-          const availableKeys = Object.keys(firstRow);
+          if (parsed.chartConfig && Array.isArray(data) && data.length > 1) {
+            console.log("📊 Chart Config received:", JSON.stringify(parsed.chartConfig, null, 2));
+            console.log("📊 SQL Result data:", data.length, "rows");
+            
+            const processedData = data.slice(0, 50);
+            const firstRow = processedData[0] || {};
+            const availableKeys = Object.keys(firstRow);
 
-          const lowerKeyMap = availableKeys.reduce((acc, key) => {
-            acc[key.toLowerCase()] = key;
-            return acc;
-          }, {} as Record<string, string>);
+            console.log("📊 Available keys in result:", availableKeys);
 
-          if (parsed.chartConfig.xAxis) {
-            const normalizedXAxis = lowerKeyMap[parsed.chartConfig.xAxis.toLowerCase()];
-            if (normalizedXAxis) parsed.chartConfig.xAxis = normalizedXAxis;
-          }
-          if (parsed.chartConfig.yAxis) {
-            const normalizedYAxis = lowerKeyMap[parsed.chartConfig.yAxis.toLowerCase()];
-            if (normalizedYAxis) parsed.chartConfig.yAxis = normalizedYAxis;
-          }
+            const lowerKeyMap = availableKeys.reduce((acc, key) => {
+              acc[key.toLowerCase()] = key;
+              return acc;
+            }, {} as Record<string, string>);
+
+            if (parsed.chartConfig.xAxis) {
+              const normalizedXAxis = lowerKeyMap[parsed.chartConfig.xAxis.toLowerCase()];
+              if (normalizedXAxis) {
+                parsed.chartConfig.xAxis = normalizedXAxis;
+                console.log("📊 Normalized xAxis:", parsed.chartConfig.xAxis);
+              }
+            }
+            if (parsed.chartConfig.yAxis) {
+              const normalizedYAxis = lowerKeyMap[parsed.chartConfig.yAxis.toLowerCase()];
+              if (normalizedYAxis) {
+                parsed.chartConfig.yAxis = normalizedYAxis;
+                console.log("📊 Normalized yAxis:", parsed.chartConfig.yAxis);
+              }
+            }
 
             chartData = { config: parsed.chartConfig, data: processedData };
+            console.log("📊 Chart data generated:", {
+              type: parsed.chartConfig.type,
+              xAxis: parsed.chartConfig.xAxis,
+              yAxis: parsed.chartConfig.yAxis,
+              dataRows: processedData.length
+            });
+          } else {
+            console.log("📊 No chart config or insufficient data for chart:", {
+              hasChartConfig: !!parsed.chartConfig,
+              dataLength: Array.isArray(data) ? data.length : 0
+            });
           }
         }
       } catch (execError) {

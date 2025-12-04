@@ -4,7 +4,7 @@ import type React from "react"
 import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Send, Bot, User, Loader2, X, BarChart3 } from "lucide-react"
+import { Send, Bot, User, Loader2, X, BarChart3, Database, ChevronRight } from "lucide-react"
 import type { File } from "@/types/database"
 import { ChartViewer } from "@/components/chart-viewer"
 
@@ -32,6 +32,7 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [showTableView, setShowTableView] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     if (file) {
@@ -198,21 +199,19 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
                 >
                   <p className="text-sm whitespace-pre-wrap">{message.content}</p>
 
-                  {message.intent && (
+                  {/* {message.intent && (
                     <div className="mt-2 p-2 bg-purple-50 dark:bg-purple-900/20 rounded text-xs">
                       <p className="font-semibold mb-1">Detected Intent:</p>
                       <span className="text-xs">{message.intent}</span>
                     </div>
-                  )}
-
-                  {message.preprocessing && (
-                    <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-xs">
+                  )} */}
+                    {/* <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-xs">
                       <p className="font-semibold mb-1">Preprocessing SQL (Temporary):</p>
                       <code className="text-xs">{message.preprocessing}</code>
-                    </div>
-                  )}
+                    </div> */}
+                  
 
-                  {message.sql && (
+                  {/* {message.sql && (
                     <div className="mt-2 p-2 bg-muted/50 rounded text-xs border border-border">
                       <p className="font-semibold mb-1 text-foreground">SQL Used:</p>
                       <div className="text-xs text-foreground bg-background p-2 rounded font-mono border border-border/50 overflow-hidden">
@@ -231,59 +230,129 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
                         </code>
                       </div>
                     </div>
-                  )}
+                  )} */}
 
-                  {message.result && Array.isArray(message.result) && message.result.length > 0 && (
-                    <div className="mt-2 p-2 bg-white rounded text-xs">
-                      <p className="font-semibold mb-2 text-black">SQL Results ({message.result.length} rows):</p>
-                      <div className="max-h-96 overflow-auto">
-                        <div className="min-w-full">
-                          <table className="w-full text-sm border-collapse">
-                            <thead className="bg-gray-50 sticky top-0">
-                              <tr>
-                                {Object.keys(message.result[0]).map((key) => (
-                                  <th key={key} className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-200">
-                                    {key}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {message.result.map((row: any, idx: number) => (
-                                <tr key={idx} className="hover:bg-gray-50">
-                                  {Object.keys(message.result[0]).map((key) => (
-                                    <td key={key} className="px-3 py-2 border-b border-gray-200 text-gray-900">
-                                      {typeof row[key] === 'number' 
-                                        ? row[key].toLocaleString() 
-                                        : String(row[key] ?? '')}
-                                    </td>
-                                  ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                  {message.chartData ? (
+                    // Show chart with toggle buttons (like KPI chart)
+                    <div className="mt-2">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant={!showTableView[message.id] ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setShowTableView(prev => ({ ...prev, [message.id]: false }))}
+                            className="text-xs"
+                          >
+                            <Database className="h-3 w-3 mr-1" />
+                            Chart
+                          </Button>
+                          <Button
+                            variant={showTableView[message.id] ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setShowTableView(prev => ({ ...prev, [message.id]: true }))}
+                            className="text-xs"
+                          >
+                            <ChevronRight className="h-3 w-3 mr-1" />
+                            Table
+                          </Button>
                         </div>
+                        {showTableView[message.id] && message.result && Array.isArray(message.result) && (
+                          <div className="text-xs text-muted-foreground">
+                            {message.result.length} rows
+                          </div>
+                        )}
                       </div>
+                      {showTableView[message.id] ? (
+                        // Table View
+                        message.result && Array.isArray(message.result) && message.result.length > 0 ? (
+                          <div className="max-h-96 overflow-auto">
+                            <div className="min-w-full">
+                              <table className="w-full text-sm border-collapse">
+                                <thead className="bg-gray-50 sticky top-0">
+                                  <tr>
+                                    {Object.keys(message.result[0]).map((key) => (
+                                      <th key={key} className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-200">
+                                        {key}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {message.result.map((row: any, idx: number) => (
+                                    <tr key={idx} className="hover:bg-gray-50">
+                                      {Object.keys(message.result[0]).map((key) => (
+                                        <td key={key} className="px-3 py-2 border-b border-gray-200 text-gray-900">
+                                          {typeof row[key] === 'number' 
+                                            ? row[key].toLocaleString() 
+                                            : String(row[key] ?? '')}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="h-32 flex items-center justify-center text-gray-500">
+                            No data available
+                          </div>
+                        )
+                      ) : (
+                        // Chart View
+                        <ChartViewer chartData={message.chartData} />
+                      )}
                     </div>
-                  )}
-                  
-                  {message.result && (!Array.isArray(message.result) || message.result.length === 0) && (
-                    <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs">
-                      <p className="font-semibold mb-1">SQL Results:</p>
-                      <code className="text-xs">{JSON.stringify(message.result, null, 2)}</code>
-                    </div>
+                  ) : (
+                    // No chart - show table normally
+                    <>
+                      {message.result && Array.isArray(message.result) && message.result.length > 0 && (
+                        <div className="mt-2 p-2 bg-white rounded text-xs">
+                          <p className="font-semibold mb-2 text-black">SQL Results ({message.result.length} rows):</p>
+                          <div className="max-h-96 overflow-auto">
+                            <div className="min-w-full">
+                              <table className="w-full text-sm border-collapse">
+                                <thead className="bg-gray-50 sticky top-0">
+                                  <tr>
+                                    {Object.keys(message.result[0]).map((key) => (
+                                      <th key={key} className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-200">
+                                        {key}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {message.result.map((row: any, idx: number) => (
+                                    <tr key={idx} className="hover:bg-gray-50">
+                                      {Object.keys(message.result[0]).map((key) => (
+                                        <td key={key} className="px-3 py-2 border-b border-gray-200 text-gray-900">
+                                          {typeof row[key] === 'number' 
+                                            ? row[key].toLocaleString() 
+                                            : String(row[key] ?? '')}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {message.result && (!Array.isArray(message.result) || message.result.length === 0) && (
+                        <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs">
+                          <p className="font-semibold mb-1">SQL Results:</p>
+                          <code className="text-xs">{JSON.stringify(message.result, null, 2)}</code>
+                        </div>
+                      )}
+                    </>
                   )}
 
                   {message.sqlError && (
                     <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded text-xs">
                       <p className="font-semibold mb-1 text-red-600 dark:text-red-400">SQL Error:</p>
                       <code className="text-xs text-red-600 dark:text-red-400 bg-transparent p-0 font-mono break-all">{message.sqlError}</code>
-                    </div>
-                  )}
-
-                  {message.chartData && (
-                    <div className="mt-3">
-                      <ChartViewer chartData={message.chartData} />
                     </div>
                   )}
 
