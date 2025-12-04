@@ -35,14 +35,20 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
 
   useEffect(() => {
     if (file) {
-      setMessages([
-        {
-          id: "1",
-          role: "assistant",
-          content: `Hello! I'm here to help you analyze the data in "${file.name}". You can ask questions, request summaries, preprocessing, or charts. What would you like to know?`,
-          timestamp: new Date(),
-        },
-      ])
+      // Only set initial message if messages array is empty (first time opening)
+      setMessages((prev) => {
+        if (prev.length === 0) {
+          return [
+            {
+              id: "1",
+              role: "assistant",
+              content: `Hello! I'm here to help you analyze the data in "${file.name}". You can ask questions, request summaries, preprocessing, or charts. What would you like to know?`,
+              timestamp: new Date(),
+            },
+          ]
+        }
+        return prev; // Keep existing messages
+      })
     } else {
       setMessages([])
     }
@@ -63,23 +69,47 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
       timestamp: new Date(),
     }
 
-    setMessages((prev) => [...prev, userMessage])
+    // Store the user message content before clearing input
+    const userMessageContent = input.trim()
+    
+    // Add user message to state immediately - use functional update to ensure it's added
+    setMessages((prev) => {
+      // Check if message already exists to avoid duplicates
+      const exists = prev.some(msg => msg.id === userMessage.id)
+      return exists ? prev : [...prev, userMessage]
+    })
+    
     setInput("")
     setIsLoading(true)
 
     try {
+      // Prepare conversation history - include all previous messages plus the new one
+      // Format them for the API (role and content only)
+      const conversationHistory = [...messages, userMessage].map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }))
+
+      // Check if file has table_name before making request
+      if (!file.table_name) {
+        throw new Error("This file doesn't have a database table yet. Please ensure the file was uploaded successfully with a temporary table created.")
+      }
+
       const response = await fetch("/api/chat-csv", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: input.trim(),
+          message: userMessageContent, // Use stored message content
           fileId: file.id,
           tableName: file.table_name,
-          messages: messages.slice(-10), // last 10 messages
+          messages: conversationHistory, // Send all messages for context
         }),
       })
 
-      if (!response.ok) throw new Error("Failed to get response")
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || "Failed to get response")
+      }
 
       const data = await response.json()
 
@@ -92,7 +122,7 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
         result: data.result || undefined,
         sqlError: data.sqlError || undefined,
         chartData: data.chartData || undefined,
-        intent: data.intent || undefined,
+        intent: data.intent || data.needsSQL ? "sql_needed" : "context_only",
         timestamp: new Date(),
       }
 
@@ -102,10 +132,18 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: "I'm sorry, I encountered an error while processing your question. Please try again.",
+        content: error instanceof Error 
+          ? `I'm sorry, I encountered an error: ${error.message}. Please try again.`
+          : "I'm sorry, I encountered an error while processing your question. Please try again.",
         timestamp: new Date(),
       }
-      setMessages((prev) => [...prev, errorMessage])
+      // Make sure we add the error message to the current state, not overwrite
+      setMessages((prev) => {
+        // Check if user message is already there, if not add it
+        const hasUserMessage = prev.some(msg => msg.id === userMessage.id);
+        const messagesToUpdate = hasUserMessage ? prev : [...prev, userMessage];
+        return [...messagesToUpdate, errorMessage];
+      })
     } finally {
       setIsLoading(false)
     }
@@ -175,40 +213,71 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
                   )}
 
                   {message.sql && (
-                    <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs">
-                      <p className="font-semibold mb-1">SQL Used:</p>
-                      <code className="text-xs">{message.sql}</code>
+                    <div className="mt-2 p-2 bg-muted/50 rounded text-xs border border-border">
+                      <p className="font-semibold mb-1 text-foreground">SQL Used:</p>
+                      <div className="text-xs text-foreground bg-background p-2 rounded font-mono border border-border/50 overflow-hidden">
+                        <code 
+                          className="block break-words whitespace-pre-wrap"
+                          style={{
+                            display: '-webkit-box',
+                            WebkitLineClamp: 3,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            maxWidth: '100%'
+                          }}
+                        >
+                          {message.sql}
+                        </code>
+                      </div>
                     </div>
                   )}
 
-                  {message.result && (
+                  {message.result && Array.isArray(message.result) && message.result.length > 0 && (
+                    <div className="mt-2 p-2 bg-white rounded text-xs">
+                      <p className="font-semibold mb-2 text-black">SQL Results ({message.result.length} rows):</p>
+                      <div className="max-h-96 overflow-auto">
+                        <div className="min-w-full">
+                          <table className="w-full text-sm border-collapse">
+                            <thead className="bg-gray-50 sticky top-0">
+                              <tr>
+                                {Object.keys(message.result[0]).map((key) => (
+                                  <th key={key} className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-200">
+                                    {key}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {message.result.map((row: any, idx: number) => (
+                                <tr key={idx} className="hover:bg-gray-50">
+                                  {Object.keys(message.result[0]).map((key) => (
+                                    <td key={key} className="px-3 py-2 border-b border-gray-200 text-gray-900">
+                                      {typeof row[key] === 'number' 
+                                        ? row[key].toLocaleString() 
+                                        : String(row[key] ?? '')}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {message.result && (!Array.isArray(message.result) || message.result.length === 0) && (
                     <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs">
                       <p className="font-semibold mb-1">SQL Results:</p>
-                      <div className="max-h-32 overflow-y-auto">
-                        {Array.isArray(message.result) ? (
-                          <div className="space-y-1">
-                            {message.result.slice(0, 10).map((row, idx) => (
-                              <div key={idx} className="text-xs">
-                                {JSON.stringify(row)}
-                              </div>
-                            ))}
-                            {message.result.length > 10 && (
-                              <p className="text-xs text-muted-foreground">
-                                ... and {message.result.length - 10} more rows
-                              </p>
-                            )}
-                          </div>
-                        ) : (
-                          <code className="text-xs">{JSON.stringify(message.result)}</code>
-                        )}
-                      </div>
+                      <code className="text-xs">{JSON.stringify(message.result, null, 2)}</code>
                     </div>
                   )}
 
                   {message.sqlError && (
                     <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded text-xs">
-                      <p className="font-semibold mb-1 text-red-600">SQL Error:</p>
-                      <code className="text-xs text-red-600">{message.sqlError}</code>
+                      <p className="font-semibold mb-1 text-red-600 dark:text-red-400">SQL Error:</p>
+                      <code className="text-xs text-red-600 dark:text-red-400 bg-transparent p-0 font-mono break-all">{message.sqlError}</code>
                     </div>
                   )}
 
