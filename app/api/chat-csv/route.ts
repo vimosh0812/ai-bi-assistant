@@ -491,12 +491,14 @@ ${columnAnalysisText || "No column analysis available - dataset may be empty"}
 Sample Data (first 5 rows):
 ${sampleDataPreview}
 
-⚠️ CRITICAL DATA TYPE WARNING:
-All data in the database is stored as TEXT, so you MUST use CAST() functions for any numeric operations:
+CRITICAL DATA TYPE WARNING:
+All data in the database is stored as TEXT, so you MUST use CAST() functions for any numeric or date operations:
 - Numeric columns need CAST(column_name AS NUMERIC) for calculations
+- Date components (year, month, day) need CAST(column_name AS INTEGER) for date operations
 - Always cast before performing SUM(), AVG(), MAX(), MIN(), or any arithmetic operations
 - Examples: SUM(CAST(${sanitizedColumnNames[0] || 'column_name'} AS NUMERIC)), AVG(CAST(${sanitizedColumnNames[0] || 'column_name'} AS NUMERIC))
-- REMINDER: Every time you write a numeric operation, ask yourself "Did I cast it to NUMERIC?"
+- For date calculations with separate year/month/day columns, use MAKE_DATE(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER))
+- REMINDER: Every time you write a numeric operation, ask yourself "Did I cast it to NUMERIC?" For dates, ask "Did I cast to INTEGER and use MAKE_DATE?"
 
 IMPORTANT: When describing data:
 - Provide professional, detailed, and insightful analysis
@@ -508,6 +510,31 @@ IMPORTANT: When describing data:
 - Verify your descriptions match the MIN/MAX values and unique values shown in the analysis
 - If a column shows MIN: X and MAX: Y, those are the actual data values - use them exactly
 - Write comprehensive, professional summaries that provide real insights, not just basic lists
+
+CRITICAL FORMATTING REQUIREMENTS FOR DATASET SUMMARIES:
+- Always format summaries with clear structure using headings, bullet points, and proper spacing
+- Use headings to organize sections (e.g., "Dataset Overview", "Column Details", "Key Insights")
+- Use bullet points (• or -) for lists, NOT comma-separated values in one line
+- Add blank lines between sections for readability
+- Keep explanations short and concise (1-2 sentences per point)
+- Format values on separate lines or in structured lists, NOT all in one line
+- Example of GOOD formatting:
+  "Dataset Overview:
+  
+  This dataset contains 1000 rows with 9 columns covering retail sales data.
+  
+  Column Details:
+  
+  • gender: 2 unique values (Female, Male)
+  • age: 47 unique values, ranging from 18 to 64
+  • product_category: 3 unique values (Beauty, Clothing, Electronics)
+  
+  Key Insights:
+  
+  The dataset spans from 2023 to 2024, with sales data across multiple product categories."
+  
+- Example of BAD formatting (DO NOT DO THIS):
+  "The dataset has gender (2 values: Female, Male), age (47 values, 18-64), product_category (3 values: Beauty, Clothing, Electronics)..."
 
 DATABASE SYSTEM: You are generating PostgreSQL SQL queries - use PostgreSQL syntax and functions.
 Table name in queries: "${actualTableName}"
@@ -521,32 +548,80 @@ SQL QUERY RULES:
   - CORRECT: SELECT MAX(CAST(price_per_unit_unknown AS NUMERIC)) FROM "${actualTableName}"
   - WRONG: SELECT MAX(CAST("price_per_unit_unknown" AS NUMERIC)) FROM "${actualTableName}"
 
+CRITICAL DATE CALCULATION RULES:
+- For date calculations with separate year/month/day columns, use PostgreSQL's MAKE_DATE() function
+- Cast date components to INTEGER (not NUMERIC or TEXT)
+- Use date subtraction directly (date1 - date2) to get the difference in days
+- Always validate date components are > 0 before using them
+- CORRECT date calculation example:
+  SELECT 
+    supplier,
+    AVG(
+      MAKE_DATE(
+        CAST(delivery_date_year AS INTEGER),
+        CAST(delivery_date_month AS INTEGER),
+        CAST(delivery_date_day AS INTEGER)
+      )
+      -
+      MAKE_DATE(
+        CAST(order_date_year AS INTEGER),
+        CAST(order_date_month AS INTEGER),
+        CAST(order_date_day AS INTEGER)
+      )
+    ) AS average_lead_time
+  FROM "${actualTableName}"
+  WHERE
+    CAST(delivery_date_year AS INTEGER) > 0 
+    AND CAST(delivery_date_month AS INTEGER) > 0 
+    AND CAST(delivery_date_day AS INTEGER) > 0
+    AND CAST(order_date_year AS INTEGER) > 0 
+    AND CAST(order_date_month AS INTEGER) > 0 
+    AND CAST(order_date_day AS INTEGER) > 0
+  GROUP BY supplier;
+  
+- WRONG date calculation (DO NOT USE):
+  - String concatenation: CAST(year AS TEXT) || '-' || CAST(month AS TEXT) || '-' || CAST(day AS TEXT)
+  - DATE_PART with string concatenation
+  - Casting to TEXT for date components
+  - Using NUMERIC instead of INTEGER for date components
+
 ${needsSQL ? `The user's question requires a SQL query. Generate a PostgreSQL SQL query to answer it.
+
+CRITICAL: You MUST return valid JSON format. Your response MUST start with { and end with }. NO EXCEPTIONS.
 
 IMPORTANT: Your response should be CONVERSATIONAL and NATURAL, as if you're having a friendly conversation with the user.
 - Start with a natural, conversational response to their question
 - Explain what you found in a friendly, engaging way
 - When showing a table, introduce it conversationally (e.g., "Here's what I found:" or "Let me show you the results:")
 - Make it feel like a real conversation, not just data output
+- Do NOT mention SQL queries, SQL code, or technical implementation details in your explanation
+- Do NOT say things like "Here's the SQL query I'll use" or "SQL Results" - just present the data naturally
 - Example: "The maximum age in the dataset is 64. Here's the breakdown:" [then show table]
 
 Available Columns:
 ${sanitizedColumnNames.map((col: string) => `- ${col}`).join('\n')}
 
-CRITICAL: You MUST return ONLY valid JSON. Do NOT include any explanatory text, markdown, or code blocks outside the JSON.
+CRITICAL JSON REQUIREMENT: 
+- You MUST return ONLY valid JSON - no text before or after
+- Your response MUST be a complete JSON object starting with { and ending with }
+- The JSON MUST include: "sql" (with the SQL query), "explanation" (conversational text), "needsSQL": true
+- If you return plain text instead of JSON, the system will fail
+- DO NOT return conversational text alone - it MUST be wrapped in JSON format
 
-Answer in JSON format ONLY (no other text):
+YOUR RESPONSE MUST BE VALID JSON - NO EXCEPTIONS:
 {
   "sql": "SELECT ... FROM \"${actualTableName}\" ...",
-  "explanation": "A conversational, natural response that answers the user's question. Start with a friendly answer, then mention that you're showing the results in a table below. Make it feel like a real conversation. Example: 'The maximum age in your dataset is 64 years old. Here's the breakdown:'",
+  "explanation": "A conversational, natural response that answers the user's question. Start with a friendly answer, then mention that you're showing the results in a table below. Make it feel like a real conversation. Do NOT mention SQL queries, SQL code, or technical details. Example: 'The maximum age in your dataset is 64 years old. Here's the breakdown:'",
   "needsSQL": true,
-  "chartConfig": {
-    "type": "bar|line|pie|area|donut|scatter",
-    "title": "Chart Title",
-    "xAxis": "column_name_for_x_axis",
-    "yAxis": "column_name_for_y_axis"
-  }
+  "chartConfig": null
 }
+
+CRITICAL: 
+- If the user asks about months, delays, time periods, or trends, you MUST generate SQL to calculate this
+- The "sql" field is REQUIRED when needsSQL is true - you CANNOT skip it
+- Your response MUST start with { and end with }
+- DO NOT return plain text - it MUST be JSON
+- If you return text like "I've analyzed..." without JSON, the system will fail
 
 CHART GENERATION:
 - If the user asks for a chart or visualization, include a "chartConfig" object in your response
@@ -566,6 +641,12 @@ CRITICAL FORMATTING RULES:
 - Example of CORRECT format: {"sql": "SELECT...", "explanation": "...", "needsSQL": true, "chartConfig": {...}}
 - Example of WRONG format: "Sure! Here's the SQL: [code block] SELECT... [end code block] and chart: [code block] {...} [end code block]"
 
+FINAL REMINDER - YOUR RESPONSE MUST LOOK LIKE THIS (EXACT FORMAT):
+{"sql": "SELECT date_month, AVG(delay_days) FROM \"${actualTableName}\" GROUP BY date_month", "explanation": "I've analyzed the delivery delays by month. Here's what I found:", "needsSQL": true, "chartConfig": null}
+
+DO NOT return: "I've analyzed the data..." (plain text)
+DO return: {"sql": "...", "explanation": "I've analyzed the data...", "needsSQL": true, "chartConfig": null}
+
 CRITICAL SQL RULES:
 - Column names: Use WITHOUT quotes (age, not "age")
 - Table name: Use WITH quotes ("${actualTableName}")
@@ -574,6 +655,10 @@ CRITICAL SQL RULES:
   * CORRECT: SELECT MIN(CAST(age AS NUMERIC)) FROM "${actualTableName}"
   * WRONG: SELECT MIN(CAST("age" AS NUMERIC)) FROM "${actualTableName}"
   * CORRECT: SELECT MAX(CAST(price_per_unit_unknown AS NUMERIC)) FROM "${actualTableName}"
+- DATE CALCULATIONS: Use MAKE_DATE(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) for date operations
+  * Date components must be cast to INTEGER (not NUMERIC or TEXT)
+  * Use date subtraction directly: MAKE_DATE(...) - MAKE_DATE(...) to get days difference
+  * Always validate date components > 0 in WHERE clause
 - Use proper PostgreSQL syntax
 - Return valid JSON only` : `The user's question can be answered from context without a SQL query.
 
@@ -582,18 +667,22 @@ CRITICAL: You MUST return ONLY valid JSON. Do NOT include any explanatory text, 
 IMPORTANT: Your response should be CONVERSATIONAL and NATURAL, as if you're having a friendly conversation with the user.
 - Be friendly and engaging
 - Format column names as **COLUMN_NAME** (uppercase, bold)
+- Always use structured formatting with headings, bullet points, and proper spacing
+- Do NOT put all values in one line - use bullet points and separate lines
 - For each column:
+  * Use bullet points (• or -) to list information
   * **COLUMN_NAME**: [unique count] unique values
-  * For numeric columns: Include MIN and MAX values (e.g., "ranging from MIN to MAX")
-  * For categorical columns: List the unique values if <=15, or mention sample if >15
+  * For numeric columns: Include MIN and MAX values on separate lines or in structured format
+  * For categorical columns: List unique values in a bulleted list, NOT comma-separated in one line
 - Keep each column description to 1-2 sentences maximum
 - Focus on key facts only - avoid verbose explanations
 - Write naturally, as if explaining to a friend
+- Add blank lines between sections for readability
 
 Answer in JSON format ONLY (no other text):
 {
   "sql": null,
-  "explanation": "A conversational, natural response that answers the user's question in a friendly, engaging way. Format column names as **COLUMN_NAME**.",
+  "explanation": "A conversational, natural response that answers the user's question in a friendly, engaging way. Use structured formatting with headings, bullet points, and proper spacing. Format column names as **COLUMN_NAME**. Do NOT put all values in one line - use bullet points and separate lines for readability.",
   "needsSQL": false
 }
 
@@ -639,7 +728,7 @@ Provide a helpful, conversational answer based on the column information, sample
           ...conversationHistory,
           { role: "user", content: message },
         ],
-        max_tokens: 1200,
+        max_tokens: 2000,
         temperature: 0.3,
       }),
     });
@@ -1058,6 +1147,13 @@ Return ONLY valid JSON, nothing else.`
     let chartData = null;
 
     if (parsed.sql) {
+      // Log SQL query (not displayed to user, only in console)
+      console.log("═══════════════════════════════════════════════════════════");
+      console.log("📝 [SQL Query] Generated SQL:");
+      console.log("═══════════════════════════════════════════════════════════");
+      console.log(parsed.sql);
+      console.log("═══════════════════════════════════════════════════════════");
+      
       try {
       const { data, error } = await supabase.rpc("exec_sql_with_result", { query: parsed.sql });
         if (error) {
@@ -1070,37 +1166,37 @@ Return ONLY valid JSON, nothing else.`
           sqlResult = Array.isArray(data) ? data : [];
 
           // Generate chart if requested and multiple rows
-          if (parsed.chartConfig && Array.isArray(data) && data.length > 1) {
+        if (parsed.chartConfig && Array.isArray(data) && data.length > 1) {
             console.log("📊 Chart Config received:", JSON.stringify(parsed.chartConfig, null, 2));
             console.log("📊 SQL Result data:", data.length, "rows");
             
-            const processedData = data.slice(0, 50);
-            const firstRow = processedData[0] || {};
-            const availableKeys = Object.keys(firstRow);
+          const processedData = data.slice(0, 50);
+          const firstRow = processedData[0] || {};
+          const availableKeys = Object.keys(firstRow);
 
             console.log("📊 Available keys in result:", availableKeys);
 
-            const lowerKeyMap = availableKeys.reduce((acc, key) => {
-              acc[key.toLowerCase()] = key;
-              return acc;
-            }, {} as Record<string, string>);
+          const lowerKeyMap = availableKeys.reduce((acc, key) => {
+            acc[key.toLowerCase()] = key;
+            return acc;
+          }, {} as Record<string, string>);
 
-            if (parsed.chartConfig.xAxis) {
-              const normalizedXAxis = lowerKeyMap[parsed.chartConfig.xAxis.toLowerCase()];
+          if (parsed.chartConfig.xAxis) {
+            const normalizedXAxis = lowerKeyMap[parsed.chartConfig.xAxis.toLowerCase()];
               if (normalizedXAxis) {
                 parsed.chartConfig.xAxis = normalizedXAxis;
                 console.log("📊 Normalized xAxis:", parsed.chartConfig.xAxis);
               }
-            }
-            if (parsed.chartConfig.yAxis) {
-              const normalizedYAxis = lowerKeyMap[parsed.chartConfig.yAxis.toLowerCase()];
+          }
+          if (parsed.chartConfig.yAxis) {
+            const normalizedYAxis = lowerKeyMap[parsed.chartConfig.yAxis.toLowerCase()];
               if (normalizedYAxis) {
                 parsed.chartConfig.yAxis = normalizedYAxis;
                 console.log("📊 Normalized yAxis:", parsed.chartConfig.yAxis);
               }
-            }
+          }
 
-            chartData = { config: parsed.chartConfig, data: processedData };
+          chartData = { config: parsed.chartConfig, data: processedData };
             console.log("📊 Chart data generated:", {
               type: parsed.chartConfig.type,
               xAxis: parsed.chartConfig.xAxis,

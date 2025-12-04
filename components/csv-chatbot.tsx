@@ -308,7 +308,6 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
                     <>
                       {message.result && Array.isArray(message.result) && message.result.length > 0 && (
                         <div className="mt-2 p-2 bg-white rounded text-xs">
-                          <p className="font-semibold mb-2 text-black">SQL Results ({message.result.length} rows):</p>
                           <div className="max-h-96 overflow-auto">
                             <div className="min-w-full">
                               <table className="w-full text-sm border-collapse">
@@ -342,7 +341,6 @@ export function CSVChatbot({ file, onClose, onViewData }: CSVChatbotProps) {
                       
                       {message.result && (!Array.isArray(message.result) || message.result.length === 0) && (
                         <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs">
-                          <p className="font-semibold mb-1">SQL Results:</p>
                           <code className="text-xs">{JSON.stringify(message.result, null, 2)}</code>
                         </div>
                       )}
