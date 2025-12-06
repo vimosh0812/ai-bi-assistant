@@ -2,10 +2,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { parse } from "papaparse"; // Optional, for CSV validation
-import { tempTableManager } from "@/lib/temp-table-manager";
-
-// Force dynamic rendering
-export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,7 +20,6 @@ export async function POST(request: NextRequest) {
 
     const parsed = parse(csvText, { header: true, skipEmptyLines: true });
     const headers = parsed.meta.fields || [];
-    const csvData = parsed.data;
 
     const filePath = `${user.id}/${folderId}/${Date.now()}_${fileName}.csv`;
     console.log("Uploading CSV to path:", filePath);
@@ -39,32 +34,6 @@ export async function POST(request: NextRequest) {
     }
     console.log("CSV uploaded successfully");
 
-    // Create temporary table for SQL queries
-    console.log("🔄 Starting temporary table creation process...");
-    console.log("📋 CSV data summary:", {
-      totalRows: csvData.length,
-      headerCount: headers.length,
-      headers: headers.slice(0, 5),
-      firstRow: csvData[0] ? Object.keys(csvData[0]).slice(0, 5) : 'No data',
-      firstRowValues: csvData[0] ? Object.values(csvData[0]).slice(0, 3) : 'No data'
-    });
-    
-    const tempTableResult = await tempTableManager.createTempTable(
-      csvData,
-      headers,
-      "", // We'll get the fileId after inserting the file record
-      user.id
-    );
-
-    if (!tempTableResult.success) {
-      console.error("❌ Failed to create temporary table:", tempTableResult.error);
-      console.log("⚠️ Continuing without temporary table - file will be stored but SQL queries may not work");
-    } else {
-      console.log("✅ Temporary table created successfully in backend!");
-      console.log(`   Table name: ${tempTableResult.tableName}`);
-      console.log(`   Ready for SQL query execution`);
-    }
-
     const { data: newFile, error: insertError } = await supabase
       .from("files")
       .insert([
@@ -76,17 +45,12 @@ export async function POST(request: NextRequest) {
           storage_path: filePath,
           original_headers: headers,
           ai_summary: aiSummary || null,
-          table_name: tempTableResult.success ? tempTableResult.tableName : null,
         },
       ])
       .select()
       .single();
 
     if (insertError) {
-      // Clean up temporary table if file insertion fails
-      if (tempTableResult.success) {
-        await tempTableManager.dropTempTable(tempTableResult.tableName!);
-      }
       return NextResponse.json({ error: "Failed to save file metadata", details: insertError }, { status: 500 });
     }
 

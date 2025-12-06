@@ -1,7 +1,6 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { filterIdColumns, filterIdColumnsFromData } from "@/lib/utils";
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,15 +28,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No data to insert" }, { status: 400 });
     }
 
-    // Filter out 'id' columns first (conflicts with PRIMARY KEY)
-    const { filteredHeaders: headersWithoutId, idColumnsRemoved } = filterIdColumns(headers);
-    const filteredData = filterIdColumnsFromData(data, headers, headersWithoutId);
-    
-    if (idColumnsRemoved.length > 0) {
-      console.log(`⚠️ Removed ${idColumnsRemoved.length} 'id' column(s) from CSV storage:`, idColumnsRemoved);
-    }
-
-    const sanitizedHeaders = headersWithoutId.map((h: string) =>
+    const sanitizedHeaders = headers.map((h: string) =>
       h.toLowerCase().replace(/[^a-z0-9_]/g, "_")
     );
 
@@ -62,9 +53,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Failed to create table", details: createError }, { status: 500 });
     }
 
-    const insertData = filteredData.map((row: any) => {
+    const insertData = data.map((row: any) => {
       const sanitizedRow: any = {};
-      headersWithoutId.forEach((header: string) => {
+      headers.forEach((header: string) => {
         const key = header.toLowerCase().replace(/[^a-z0-9_]/g, "_");
         sanitizedRow[key] = row[header] ?? null;
       });

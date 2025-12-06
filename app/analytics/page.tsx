@@ -2,7 +2,6 @@
 
 import React, { useState, useRef, useEffect } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
-// Import UI components with fallback
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Upload, FileText, BarChart3, Table, Database, TrendingUp, Users, DollarSign, Clock, Activity, Cpu, ArrowLeft } from "lucide-react"
-import { cn, filterIdColumns, filterIdColumnsFromData } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import { processDateColumns } from "@/lib/date-utils"
 import { Pie, Bar, Line, Doughnut } from "react-chartjs-2"
 import Papa from "papaparse"
@@ -218,23 +217,17 @@ export default function AnalyticsPage() {
   const preprocessData = (
     headers: string[],
     data: Record<string, any>[],
-    aiOutput: { personalColumns?: { name: string; type: string }[]; currencyColumns?: { name: string; currency: string }[] }
+    aiOutput: { emailColumns?: { name: string; type: string }[]; currencyColumns?: { name: string; currency: string }[] }
   ) => {
-    // Filter out 'id' columns first (conflicts with PRIMARY KEY)
-    const { filteredHeaders: headersWithoutId, idColumnsRemoved } = filterIdColumns(headers);
-    let processedData = filterIdColumnsFromData(data, headers, headersWithoutId);
-    let processedHeaders = [...headersWithoutId]
-    
-    if (idColumnsRemoved.length > 0) {
-      console.log(`⚠️ Removed ${idColumnsRemoved.length} 'id' column(s) during preprocessing:`, idColumnsRemoved);
-    }
+    let processedData = [...data]
+    let processedHeaders = [...headers]
 
-    // Remove personal/privacy columns
-    if (aiOutput.personalColumns?.length) {
-      const personalColumnNames = aiOutput.personalColumns.map((col) =>
+    // Remove email columns
+    if (aiOutput.emailColumns?.length) {
+      const emailColumnNames = aiOutput.emailColumns.map((col) =>
         typeof col === "string" ? col : col.name
       )
-      processedHeaders = processedHeaders.filter((h) => !personalColumnNames.includes(h))
+      processedHeaders = processedHeaders.filter((h) => !emailColumnNames.includes(h))
       processedData = processedData.map((row) => {
         const newRow: Record<string, any> = {}
         processedHeaders.forEach((h) => (newRow[h] = row[h]))
@@ -323,8 +316,8 @@ export default function AnalyticsPage() {
         body: JSON.stringify({ headers, rows: rows.slice(0, 5) }),
       })
       const data = await res.json()
-      console.log("AI Analysis response:", data)
-      // Summary is no longer generated - removed to save tokens
+      console.log("AI Summary response:", data)
+      setAiSummary(data.summary || "No summary available")
     } catch (err) {
       console.error(err)
       setAiSummary("Failed to generate AI summary")
@@ -339,11 +332,7 @@ export default function AnalyticsPage() {
   const generateKPIAnalysis = async () => {
     if (!rawData.length) return
     
-    console.log("🤖 [AI REQUEST] Generating KPI analysis...", {
-      rowCount: rawData.length,
-      headers: headers,
-      sampleData: rawData.slice(0, 2)
-    });
+    console.log(`Generating KPI analysis for ${rawData.length} rows of data`);
     console.log("Full dataset will be used for SQL execution, sample data for OpenAI analysis");
     
     setLoadingKPI(true)
@@ -356,42 +345,12 @@ export default function AnalyticsPage() {
           rows: rawData  // Full dataset sent to API
         }),
       })
-      
-      let data;
-      try {
-        data = await res.json();
-      } catch (parseError) {
-        console.error("❌ [AI RESPONSE] Failed to parse JSON:", parseError);
-        throw parseError;
-      }
-      
-      // Log full AI response for debugging
-      console.log("🤖 [AI RESPONSE] Full KPI Analysis Response:", {
-        status: res.status,
-        ok: res.ok,
-        data: data,
-        metricsCount: data?.metrics?.length || 0,
-        metrics: data?.metrics?.map((m: any) => ({
-          name: m.name,
-          chartType: m.chartType,
-          category: m.category,
-          sqlQuery: m.sqlQuery,
-          xAxisQuery: m.xAxisQuery
-        })) || []
-      });
-      
-      if (!res.ok) {
-        console.error("❌ [AI RESPONSE] Server error:", {
-          status: res.status,
-          error: data?.error
-        });
-      }
-      
-      console.log("✅ [AI RESPONSE] Successfully received KPI analysis with", data?.metrics?.length || 0, "metrics");
+      const data = await res.json()
+      console.log("KPI Analysis response:", data)
       setKpiAnalysis(data)
       setActiveTab("kpi")
     } catch (err) {
-      console.error("❌ [AI RESPONSE] KPI Analysis error:", err)
+      console.error("KPI Analysis error:", err)
     } finally {
       setLoadingKPI(false)
     }
@@ -795,21 +754,19 @@ export default function AnalyticsPage() {
                   {/* Charts Dashboard */}
                   <div className="space-y-8">
                     <h3 className="text-xl font-semibold text-gray-900 mb-6">Data Visualizations</h3>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                       {kpiAnalysis.metrics.map((metric, index) => (
-                        <div key={`chart-wrapper-${index}`} className="flex">
-                          <KPIChart
-                            key={`chart-${index}`}
-                            title={metric.name}
-                            description={metric.description}
-                            chartType={metric.chartType as any}
-                            data={rawData}
-                            chartConfig={metric.chartConfig}
-                            sqlQuery={metric.sqlQuery}
-                            xAxisQuery={metric.xAxisQuery}
-                            category={metric.category}
-                          />
-                        </div>
+                        <KPIChart
+                          key={`chart-${index}`}
+                          title={metric.name}
+                          description={metric.description}
+                          chartType={metric.chartType as any}
+                          data={rawData}
+                          chartConfig={metric.chartConfig}
+                          sqlQuery={metric.sqlQuery}
+                          xAxisQuery={metric.xAxisQuery}
+                          category={metric.category}
+                        />
                       ))}
                     </div>
                   </div>
