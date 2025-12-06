@@ -8,11 +8,13 @@ import { DEFAULT_NAMES } from "@/lib/config";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import TableauViz from "@/components/tableauviz";
-import { ArrowLeft, Edit3, Eye, BarChart3, TrendingUp, Home } from "lucide-react";
+import { ArrowLeft, Edit3, Eye, BarChart3, TrendingUp, Home, Bot } from "lucide-react";
 import { OpenAIKPIAnalysis } from "@/types/kpi";
 import { KPIChart } from "@/components/kpi-chart";
+import { CSVChatbot } from "@/components/csv-chatbot";
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { BarGraphLoader } from "@/components/ui/bar-graph-loader";
 
 interface PublishResponse {
   success: boolean;
@@ -54,123 +56,123 @@ export default function FileAnalyticsPage() {
   const [folderName, setFolderName] = useState<string>("");
   const [deletingMetricIndex, setDeletingMetricIndex] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isExecutingSQL, setIsExecutingSQL] = useState(false);
-
-  // Execute SQL for KPI metrics and store results
-  const executeKPISQL = async (analysis: OpenAIKPIAnalysis) => {
-    if (!fileId || !user?.id || !csvData.length) return;
-
-    // Check if ALL metrics already have execution results (including empty results and errors)
-    const allMetricsHaveResults = analysis.metrics.every(metric => 
-      metric.executionResults?.yAxisData !== undefined && 
-      metric.executionResults?.lastExecuted !== undefined
-    );
-
-    if (allMetricsHaveResults) {
-      console.log("✅ All KPI metrics already have cached execution results, skipping SQL execution for instant loading");
-      return;
-    }
-
-    console.log("Executing SQL for KPI metrics...");
-    setIsExecutingSQL(true);
-
-    try {
-      const response = await fetch("/api/execute-kpi-sql", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileId,
-          userId: user.id,
-          kpiAnalysis: analysis,
-          csvData,
-          headers: Object.keys(csvData[0] || {})
-        }),
-      });
-
-      const result = await response.json();
-
-      if (result.success && result.kpiAnalysis) {
-        console.log("Successfully executed SQL for KPI metrics");
-        setKpiAnalysis(result.kpiAnalysis);
-      } else {
-        console.error("Failed to execute KPI SQL:", result.error);
-      }
-    } catch (error) {
-      console.error("Error executing KPI SQL:", error);
-    } finally {
-      setIsExecutingSQL(false);
-    }
-  };
+  const [showChatbot, setShowChatbot] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Fetch file details and CSV content
   useEffect(() => {
+    // Normalize params (Next.js can return arrays for dynamic routes)
+    const normalizedFileId = Array.isArray(fileId) ? fileId[0] : fileId;
+    const normalizedFolderId = Array.isArray(folderId) ? folderId[0] : folderId;
+
+    // Reset state when params change
+    setIsLoading(true);
+    setCsvData([]);
+    setFileDetails(null);
+    setFile(null);
+    setResponse(null);
+    setError(null);
+    setKpiAnalysis(null);
+    setHasKpiAnalysis(false);
+    setShowKpiView(false);
+    setFolderName("");
+
+    if (!normalizedFileId || !normalizedFolderId) {
+      setIsLoading(false);
+      return;
+    }
+
     const fetchFile = async () => {
-      const { data, error } = await supabase
-        .from("files")
-        .select("*")
-        .eq("id", fileId)
-        .single();
+      try {
+        const { data, error } = await supabase
+          .from("files")
+          .select("*")
+          .eq("id", normalizedFileId)
+          .single();
 
-      if (error) return console.error(error);
-      setFileDetails(data);
-      setHasKpiAnalysis(data.has_kpi_analysis || false);
+        if (error) {
+          console.error("Error fetching file:", error);
+          setError("Failed to load file details");
+          setIsLoading(false);
+          return;
+        }
 
-      // Fetch folder name for breadcrumb
-      const { data: folderData, error: folderError } = await supabase
-        .from("folders")
-        .select("name")
-        .eq("id", folderId)
-        .single();
+        setFileDetails(data);
+        setHasKpiAnalysis(data.has_kpi_analysis || false);
 
-      if (!folderError && folderData) {
-        setFolderName(folderData.name);
-      }
+        // Fetch folder name for breadcrumb
+        const { data: folderData, error: folderError } = await supabase
+          .from("folders")
+          .select("name")
+          .eq("id", normalizedFolderId)
+          .single();
 
-      if (data.connected_to_tableau && data.embed_url) {
-        setResponse({
-          success: true,
-          message: "Already connected",
-          data: {
-            workbook: {
-              id: data.tableau_workbook_id,
-              name: data.file_name,
-              contentUrl: "",
-              webpageUrl: "",
-              sheetUrl: data.embed_url,
-              showTabs: true,
-              size: 0,
-              createdAt: "",
-              updatedAt: "",
-              encryptExtracts: false,
+        if (!folderError && folderData) {
+          setFolderName(folderData.name);
+        }
+
+        if (data.connected_to_tableau && data.embed_url) {
+          setResponse({
+            success: true,
+            message: "Already connected",
+            data: {
+              workbook: {
+                id: data.tableau_workbook_id,
+                name: data.file_name,
+                contentUrl: "",
+                webpageUrl: "",
+                sheetUrl: data.embed_url,
+                showTabs: true,
+                size: 0,
+                createdAt: "",
+                updatedAt: "",
+                encryptExtracts: false,
+              },
             },
-          },
-        });
-      } else {
-        fetchCsv(data.storage_path);
-      }
+          });
+          setIsLoading(false);
+        } else {
+          await fetchCsv(data.storage_path);
+        }
 
-      // Check if KPI analysis exists
-      if (data.has_kpi_analysis) {
-        fetchKpiAnalysis();
+        // Check if KPI analysis exists
+        if (data.has_kpi_analysis) {
+          await fetchKpiAnalysis();
+        }
+      } catch (error) {
+        console.error("Error in fetchFile:", error);
+        setError("Failed to load file");
+        setIsLoading(false);
       }
     };
 
     const fetchCsv = async (path: string) => {
-      const { data, error } = await supabase.storage.from("csv-files").download(path);
-      if (error) return console.error(error);
+      try {
+        const { data, error } = await supabase.storage.from("csv-files").download(path);
+        if (error) {
+          console.error("Error downloading CSV:", error);
+          setError("Failed to load CSV data");
+          setIsLoading(false);
+          return;
+        }
 
-      const text = await data.text();
-      const parsed = Papa.parse(text, { header: true });
-      setCsvData(parsed.data);
-      const filename = path.split("/").pop() || "data.csv";
-      setFile(new File([text], filename, { type: "csv" }));
-      setPublishType("datasource");
+        const text = await data.text();
+        const parsed = Papa.parse(text, { header: true });
+        setCsvData(parsed.data);
+        const filename = path.split("/").pop() || "data.csv";
+        setFile(new File([text], filename, { type: "csv" }));
+        setPublishType("datasource");
+        setIsLoading(false);
+      } catch (error) {
+        console.error("Error parsing CSV:", error);
+        setError("Failed to parse CSV data");
+        setIsLoading(false);
+      }
     };
 
     const fetchKpiAnalysis = async () => {
       try {
-        console.log("🔍 Fetching KPI analysis for fileId:", fileId);
-        const response = await fetch(`/api/get-kpi-analysis?fileId=${fileId}`);
+        const response = await fetch(`/api/get-kpi-analysis?fileId=${normalizedFileId}`);
         const data = await response.json();
         
         console.log("📊 KPI analysis fetch response:", data);
@@ -189,7 +191,7 @@ export default function FileAnalyticsPage() {
     };
 
     fetchFile();
-  }, [fileId]);
+  }, [fileId, folderId, supabase]);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -251,7 +253,22 @@ export default function FileAnalyticsPage() {
     setError(null);
     
     try {
+      // Validate data before sending
+      if (!csvData || csvData.length === 0) {
+        throw new Error("No CSV data available");
+      }
+      
+      if (!csvData[0] || Object.keys(csvData[0]).length === 0) {
+        throw new Error("CSV data has no headers");
+      }
+
       // Generate KPI analysis
+      console.log("🤖 [AI REQUEST] Generating KPI analysis...", {
+        headers: Object.keys(csvData[0] || {}),
+        rowCount: csvData.length,
+        fileId: fileDetails.id
+      });
+      
       const response = await fetch("/api/generate-kpi-analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -262,45 +279,118 @@ export default function FileAnalyticsPage() {
         }),
       });
       
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        console.error("❌ [AI RESPONSE] Failed to parse JSON:", parseError);
+        throw new Error(`Failed to parse server response: ${response.status} ${response.statusText}`);
+      }
+      
+      // Log full AI response for debugging
+      console.log("🤖 [AI RESPONSE] Full KPI Analysis Response:", {
+        status: response.status,
+        ok: response.ok,
+        data: data,
+        metricsCount: data?.metrics?.length || 0,
+        metrics: data?.metrics?.map((m: any) => ({
+          name: m.name,
+          chartType: m.chartType,
+          category: m.category,
+          sqlQuery: m.sqlQuery,
+          xAxisQuery: m.xAxisQuery
+        })) || []
+      });
+      
+      if (!response.ok) {
+        console.error("❌ [AI RESPONSE] Server error:", {
+          status: response.status,
+          error: data?.error
+        });
+        throw new Error(data?.error || `Server error: ${response.status}`);
+      }
       
       if (data.error) {
+        console.error("❌ [AI RESPONSE] Error in response:", data.error);
         throw new Error(data.error);
       }
       
-      // Store the KPI analysis first
-      const storeResponse = await fetch("/api/store-kpi-analysis", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
+      if (!data || !data.metrics || !Array.isArray(data.metrics)) {
+        console.error("❌ [AI RESPONSE] Invalid response format:", data);
+        throw new Error("Invalid KPI analysis response format");
+      }
+      
+      console.log("✅ [AI RESPONSE] Successfully received KPI analysis with", data.metrics.length, "metrics");
+      setKpiAnalysis(data);
+      
+      // Store the KPI analysis
+      try {
+        console.log("💾 [KPI EXECUTION] Storing KPI analysis and executing queries...", {
           fileId: fileDetails.id,
-          kpiAnalysis: data
-        }),
-      });
-      
-      const storeData = await storeResponse.json();
-      
-      if (storeData.success) {
-        console.log("✅ KPI analysis stored successfully with ID:", storeData.kpiAnalysisId);
-        setKpiAnalysis(data);
-        setHasKpiAnalysis(true);
-        // Update file details
-        setFileDetails((prev: any) => ({
-          ...prev,
-          has_kpi_analysis: true,
-          kpi_analysis_id: storeData.kpiAnalysisId
-        }));
+          metricsCount: data.metrics.length
+        });
         
-        // Execute SQL for the generated KPI analysis AFTER storing
-        console.log("🚀 Executing SQL for stored KPI analysis...");
-        await executeKPISQL(data);
-      } else {
-        console.error("❌ Failed to store KPI analysis:", storeData.error);
-        throw new Error(storeData.error || "Failed to store KPI analysis");
+        const storeResponse = await fetch("/api/store-kpi-analysis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            fileId: fileDetails.id,
+            kpiAnalysis: data
+          }),
+        });
+        
+        let storeData;
+        try {
+          storeData = await storeResponse.json();
+        } catch (parseError) {
+          console.error("❌ [KPI EXECUTION] Failed to parse store response:", parseError);
+          throw parseError;
+        }
+        
+        // Log full execution response for debugging
+        console.log("💾 [KPI EXECUTION] Full Store/Execution Response:", {
+          status: storeResponse.status,
+          ok: storeResponse.ok,
+          success: storeData?.success,
+          kpiAnalysisId: storeData?.kpiAnalysisId,
+          message: storeData?.message,
+          error: storeData?.error,
+          fullResponse: storeData
+        });
+        
+        if (storeResponse.ok) {
+          if (storeData.success) {
+            console.log("✅ [KPI EXECUTION] Successfully stored and executed KPI analysis:", {
+              kpiAnalysisId: storeData.kpiAnalysisId,
+              metricsCount: data.metrics.length
+            });
+            setHasKpiAnalysis(true);
+            // Update file details
+            setFileDetails((prev: any) => ({
+              ...prev,
+              has_kpi_analysis: true,
+              kpi_analysis_id: storeData.kpiAnalysisId
+            }));
+          } else {
+            console.warn("⚠️ [KPI EXECUTION] Store response indicates failure:", storeData);
+          }
+        } else {
+          console.error("❌ [KPI EXECUTION] Failed to store KPI analysis:", {
+            status: storeResponse.status,
+            statusText: storeResponse.statusText,
+            error: storeData?.error,
+            fullResponse: storeData
+          });
+        }
+      } catch (storeError) {
+        console.error("❌ [KPI EXECUTION] Error storing KPI analysis:", storeError);
+        // Don't throw - KPI was generated successfully, just storage failed
       }
       
     } catch (err: any) {
-      setError(err.message);
+      console.error("KPI generation error:", err);
+      const errorMessage = err?.message || err?.toString() || "Failed to generate KPI analysis. Please try again.";
+      setError(errorMessage);
     } finally {
       setIsGeneratingKPI(false);
     }
@@ -359,6 +449,18 @@ export default function FileAnalyticsPage() {
 
   // Remove the generateEmbedCode function as we'll use the TableauViz component instead
 
+  // Show loading state - simplified
+  if (isLoading) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="flex flex-col items-center justify-center h-[60vh] gap-4">
+          <BarGraphLoader barCount={8} height={120} />
+          <p className="text-gray-600 text-sm">Loading file content...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto p-6">
       {/* Breadcrumb Navigation */}
@@ -377,7 +479,7 @@ export default function FileAnalyticsPage() {
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink 
-                href={`/dashboard/${folderId}`}
+                href={`/dashboard/${Array.isArray(folderId) ? folderId[0] : folderId}`}
                 className="hover:text-foreground"
               >
                 {folderName || "Folder"}
@@ -398,7 +500,7 @@ export default function FileAnalyticsPage() {
           {/* <Button
             variant="outline"
             size="sm"
-            onClick={() => router.push(`/dashboard/${folderId}`)}
+            onClick={() => router.push(`/dashboard/${Array.isArray(folderId) ? folderId[0] : folderId}`)}
             className="flex items-center gap-2"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -433,6 +535,18 @@ export default function FileAnalyticsPage() {
             >
               <TrendingUp className="h-4 w-4" />
               {showKpiView ? "Hide Analytics" : "View Analytics"}
+            </Button>
+          )}
+          
+          {/* Ask AI Button */}
+          {fileDetails && (
+            <Button
+              onClick={() => setShowChatbot(true)}
+              className="flex items-center gap-2"
+              variant="outline"
+            >
+              <Bot className="h-4 w-4" />
+              Ask AI
             </Button>
           )}
           
@@ -485,7 +599,10 @@ export default function FileAnalyticsPage() {
               </tbody>
             </table>
           ) : (
-            <p className="p-4 text-gray-500">Loading CSV content...</p>
+            <div className="flex flex-col items-center justify-center p-8 gap-4">
+              <BarGraphLoader barCount={6} height={100} />
+              <p className="text-gray-500 text-sm">Loading CSV content...</p>
+            </div>
           )}
         </div>
       )}
@@ -506,10 +623,7 @@ export default function FileAnalyticsPage() {
           
           {isGeneratingKPI ? (
             <div className="flex items-center justify-center py-12">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-gray-600">Generating KPI analysis...</p>
-              </div>
+              <p className="text-gray-600">Generating KPI analysis...</p>
             </div>
           ) : kpiAnalysis ? (
             <>
@@ -529,24 +643,25 @@ export default function FileAnalyticsPage() {
               )}
 
               {/* KPI Charts Grid */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
                 {kpiAnalysis.metrics.map((metric, index) => (
-                  <KPIChart
-                    key={`chart-${index}`}
-                    title={metric.name}
-                    description={metric.description}
-                    chartType={metric.chartType as any}
-                    data={csvData}
-                    chartConfig={metric.chartConfig}
-                    sqlQuery={metric.sqlQuery}
-                    xAxisQuery={metric.xAxisQuery}
-                    category={metric.category}
-                    fileId={fileId as string}
-                    userId={user?.id}
-                    executionResults={metric.executionResults}
-                    showDeleteButton={true}
-                    onDelete={() => setDeletingMetricIndex(index)}
-                  />
+                  <div key={`chart-wrapper-${index}`} className="flex">
+                    <KPIChart
+                      key={`chart-${index}`}
+                      title={metric.name}
+                      description={metric.description}
+                      chartType={metric.chartType as any}
+                      data={csvData as any}
+                      chartConfig={metric.chartConfig}
+                      sqlQuery={metric.sqlQuery}
+                      xAxisQuery={metric.xAxisQuery}
+                      category={metric.category}
+                      showDeleteButton={true}
+                      onDelete={() => setDeletingMetricIndex(index)}
+                      kpiAnalysisId={fileDetails?.kpi_analysis_id}
+                      metricIndex={index}
+                    />
+                  </div>
                 ))}
               </div>
             </>
@@ -615,6 +730,17 @@ export default function FileAnalyticsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Chatbot */}
+      {showChatbot && fileDetails && (
+        <CSVChatbot 
+          file={{
+            ...fileDetails,
+            name: fileDetails.file_name || fileDetails.name || "CSV File"
+          } as any} 
+          onClose={() => setShowChatbot(false)} 
+        />
+      )}
     </div>
   );
 }
