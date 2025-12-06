@@ -367,7 +367,7 @@ export async function POST(request: NextRequest) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-4o-mini",
+          model: "gpt-5-mini-2025-08-07",
           messages: [
             { 
               role: "system", 
@@ -722,7 +722,7 @@ Provide a helpful, conversational answer based on the column information, sample
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "gpt-5-mini-2025-08-07",
         messages: [
           { role: "system", content: systemPrompt },
           ...conversationHistory,
@@ -903,7 +903,7 @@ Provide a helpful, conversational answer based on the column information, sample
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-4o-mini",
+          model: "gpt-5-mini-2025-08-07",
           messages: [
                 { 
                   role: "system", 

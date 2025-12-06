@@ -430,7 +430,7 @@ export async function POST(req: Request) {
     let completion;
     try {
       completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: "gpt-5-mini-2025-08-07",
         messages: [
           { role: "system", content: "You are an expert data analyst and KPI specialist with deep knowledge of business metrics and data visualization." },
           { role: "user", content: prompt },
@@ -450,7 +450,7 @@ export async function POST(req: Request) {
       console.log("- Prompt tokens:", completion.usage.prompt_tokens || "N/A");
       console.log("- Completion tokens:", completion.usage.completion_tokens || "N/A");
       console.log("- Total tokens:", completion.usage.total_tokens || "N/A");
-      console.log("- Estimated cost (gpt-4o-mini):", `$${((completion.usage.prompt_tokens || 0) * 0.00015 / 1000 + (completion.usage.completion_tokens || 0) * 0.0006 / 1000).toFixed(4)}`);
+      console.log("- Estimated cost (gpt-5-mini-2025-08-07):", `$${((completion.usage.prompt_tokens || 0) * 0.00015 / 1000 + (completion.usage.completion_tokens || 0) * 0.0006 / 1000).toFixed(4)}`);
     }
 
     if (!completion?.choices?.[0]?.message?.content) {
