@@ -7,12 +7,16 @@ import { Button } from "@/components/ui/button";
 import { DEFAULT_NAMES } from "@/lib/config";
 import { createClient } from "@/lib/supabase/client";
 import TableauViz from "@/components/tableauviz";
-import { ArrowLeft, Edit3, Eye, BarChart3, TrendingUp, Home, Bot } from "lucide-react";
+import { ArrowLeft, Edit3, Eye, BarChart3, TrendingUp, Home, Bot, Copy, Check } from "lucide-react";
 import { OpenAIKPIAnalysis } from "@/types/kpi";
 import { KPIChart } from "@/components/kpi-chart";
 import { CSVChatbot } from "@/components/csv-chatbot";
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
 import { BarGraphLoader } from "@/components/ui/bar-graph-loader";
 
 interface PublishResponse {
@@ -56,6 +60,10 @@ export default function FileAnalyticsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showChatbot, setShowChatbot] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [showPowerBIDialog, setShowPowerBIDialog] = useState(false);
+  const [powerBIUrl, setPowerBIUrl] = useState("");
+  const [isCopied, setIsCopied] = useState(false);
+  const { toast } = useToast();
 
   // Fetch file details and CSV content
   useEffect(() => {
@@ -183,6 +191,41 @@ export default function FileAnalyticsPage() {
 
     fetchFile();
   }, [fileId, folderId, supabase]);
+
+  const handleConnectPowerBI = async () => {
+    if (!fileDetails?.storage_path) return;
+    
+    try {
+      const { data, error } = await supabase
+        .storage
+        .from("csv-files")
+        .createSignedUrl(fileDetails.storage_path, 60 * 60 * 24 * 7); // 7 days
+
+      if (error) throw error;
+      
+      if (data?.signedUrl) {
+        setPowerBIUrl(data.signedUrl);
+        setShowPowerBIDialog(true);
+      }
+    } catch (err) {
+      console.error("Error generating Power BI URL:", err);
+      toast({
+        title: "Error",
+        description: "Failed to generate Power BI connection URL",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(powerBIUrl);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+    toast({
+      title: "Copied",
+      description: "Power BI URL copied to clipboard",
+    });
+  };
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -540,6 +583,16 @@ export default function FileAnalyticsPage() {
               Ask AI
             </Button>
           )}
+
+          {/* Connect Power BI Button */}
+          <Button 
+            onClick={handleConnectPowerBI}
+            variant="outline"
+            className="flex items-center gap-2"
+          >
+            <BarChart3 className="h-4 w-4" />
+            Connect to Power BI
+          </Button>
           
           {/* Tableau Connection Buttons - Only show if Tableau connected */}
           {/* {response?.success && response.data?.workbook?.sheetUrl && (
@@ -684,6 +737,53 @@ export default function FileAnalyticsPage() {
           </div>
         </div>
       )}
+
+      {/* Power BI Connection Dialog */}
+      <Dialog open={showPowerBIDialog} onOpenChange={setShowPowerBIDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Connect to Power BI</DialogTitle>
+            <DialogDescription>
+              Use the URL below to connect this datasource to Power BI.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-4">
+            <div className="space-y-2">
+              <h4 className="font-medium leading-none">Instructions</h4>
+              <ol className="text-sm text-muted-foreground list-decimal pl-4 space-y-1">
+                <li>Open Power BI Desktop</li>
+                <li>Click on <strong>Get Data</strong> {'>'} <strong>Web</strong></li>
+                <li>Paste the URL below into the URL field</li>
+                <li>Click <strong>OK</strong> to load your data</li>
+              </ol>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="grid flex-1 gap-2">
+                <Label htmlFor="link" className="sr-only">
+                  Link
+                </Label>
+                <Input
+                  id="link"
+                  defaultValue={powerBIUrl}
+                  readOnly
+                />
+              </div>
+              <Button type="submit" size="sm" className="px-3" onClick={copyToClipboard}>
+                {isCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                <span className="sr-only">Copy</span>
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Note: This secure link is valid for 7 days. You will need to generate a new link after it expires.
+            </p>
+          </div>
+          <DialogFooter className="sm:justify-start">
+            <Button type="button" variant="secondary" onClick={() => setShowPowerBIDialog(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deletingMetricIndex !== null} onOpenChange={() => setDeletingMetricIndex(null)}>
