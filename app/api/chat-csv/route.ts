@@ -367,7 +367,7 @@ export async function POST(request: NextRequest) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-5-mini-2025-08-07",
+          model: "gpt-4o-mini",
           messages: [
             { 
               role: "system", 
@@ -386,7 +386,22 @@ Return ONLY one word: "sql_needed" or "context_only"`
           temperature: 0,
         }),
       });
+      
+      if (!resp.ok) {
+        const errorText = await resp.text();
+        console.error("❌ [Intent Detection] OpenAI API error:", errorText);
+        // Default to sql_needed if API call fails
+        return "sql_needed";
+      }
+      
       const data = await resp.json();
+      
+      // Check if response has choices array
+      if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+        console.error("❌ [Intent Detection] Invalid OpenAI API response:", JSON.stringify(data, null, 2));
+        // Default to sql_needed if response is invalid
+        return "sql_needed";
+      }
       
       // Log token usage for intent detection
       if (data.usage) {
@@ -411,6 +426,12 @@ Return ONLY one word: "sql_needed" or "context_only"`
     let intentTokens = { prompt: 0, completion: 0, total: 0, cost: 0 };
     const intent = await detectIntent(message, conversationHistory);
     const needsSQL = intent === "sql_needed";
+    
+    // Log intent detection result
+    console.log("🔍 [Intent Detection] Result:");
+    console.log(`   - User message: "${message}"`);
+    console.log(`   - Detected intent: "${intent}"`);
+    console.log(`   - Needs SQL: ${needsSQL}`);
     
     // Note: Intent detection tokens are logged inside detectIntent function
 
@@ -666,23 +687,24 @@ CRITICAL: You MUST return ONLY valid JSON. Do NOT include any explanatory text, 
 
 IMPORTANT: Your response should be CONVERSATIONAL and NATURAL, as if you're having a friendly conversation with the user.
 - Be friendly and engaging
-- Format column names as **COLUMN_NAME** (uppercase, bold)
+- Use plain text column names (NO markdown formatting like ** or *)
 - Always use structured formatting with headings, bullet points, and proper spacing
 - Do NOT put all values in one line - use bullet points and separate lines
 - For each column:
   * Use bullet points (• or -) to list information
-  * **COLUMN_NAME**: [unique count] unique values
+  * Column Name: [unique count] unique values (use plain text, no formatting)
   * For numeric columns: Include MIN and MAX values on separate lines or in structured format
   * For categorical columns: List unique values in a bulleted list, NOT comma-separated in one line
 - Keep each column description to 1-2 sentences maximum
 - Focus on key facts only - avoid verbose explanations
 - Write naturally, as if explaining to a friend
 - Add blank lines between sections for readability
+- Do NOT use markdown formatting (** or *) anywhere in your response
 
 Answer in JSON format ONLY (no other text):
 {
   "sql": null,
-  "explanation": "A conversational, natural response that answers the user's question in a friendly, engaging way. Use structured formatting with headings, bullet points, and proper spacing. Format column names as **COLUMN_NAME**. Do NOT put all values in one line - use bullet points and separate lines for readability.",
+  "explanation": "A conversational, natural response that answers the user's question in a friendly, engaging way. Use structured formatting with headings, bullet points, and proper spacing. Use plain text column names (NO markdown formatting). Do NOT put all values in one line - use bullet points and separate lines for readability.",
   "needsSQL": false
 }
 
@@ -722,7 +744,7 @@ Provide a helpful, conversational answer based on the column information, sample
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-5-mini-2025-08-07",
+        model: "gpt-4o-mini",
         messages: [
           { role: "system", content: systemPrompt },
           ...conversationHistory,
@@ -741,6 +763,28 @@ Provide a helpful, conversational answer based on the column information, sample
 
     const openaiData = await openaiResp.json();
     
+    // Log the FULL OpenAI response object for debugging
+    console.log("═══════════════════════════════════════════════════════════");
+    console.log("🔍 [OpenAI Full Response] Complete API Response:");
+    console.log("═══════════════════════════════════════════════════════════");
+    console.log(JSON.stringify(openaiData, null, 2));
+    console.log("═══════════════════════════════════════════════════════════");
+    
+    // Check for finish_reason to detect truncation
+    const finishReason = openaiData.choices?.[0]?.finish_reason;
+    const hasChoices = openaiData.choices && Array.isArray(openaiData.choices) && openaiData.choices.length > 0;
+    
+    console.log("🔍 [OpenAI Response Analysis]:");
+    console.log(`   - Has choices: ${hasChoices}`);
+    console.log(`   - Choices count: ${openaiData.choices?.length || 0}`);
+    console.log(`   - Finish reason: ${finishReason || 'N/A'}`);
+    if (finishReason === 'length') {
+      console.warn("   ⚠️ WARNING: Response was TRUNCATED due to max_tokens limit!");
+    }
+    if (!hasChoices) {
+      console.error("   ❌ ERROR: No choices in response!");
+    }
+    
     // Log token usage for main query
     let mainQueryTokens = { prompt: 0, completion: 0, total: 0, cost: 0 };
     if (openaiData.usage) {
@@ -757,13 +801,19 @@ Provide a helpful, conversational answer based on the column information, sample
       console.log(`   Estimated cost: $${mainQueryTokens.cost.toFixed(6)}`);
     }
 
-    let rawResponse = openaiData.choices[0]?.message?.content || "{}";
+    let rawResponse = openaiData.choices?.[0]?.message?.content || "{}";
     
     // Log the raw AI output for debugging
     console.log("═══════════════════════════════════════════════════════════");
-    console.log("📤 [AI Raw Output] Complete Response:");
+    console.log("📤 [AI Raw Output] Extracted Content:");
     console.log("═══════════════════════════════════════════════════════════");
-    console.log(rawResponse);
+    console.log("Raw response type:", typeof rawResponse);
+    console.log("Raw response length:", rawResponse?.length || 0);
+    console.log("Raw response (first 1000 chars):", rawResponse?.substring(0, 1000) || "EMPTY");
+    console.log("Raw response (full):", rawResponse);
+    if (!rawResponse || rawResponse === "{}" || rawResponse.trim() === "") {
+      console.error("❌ ERROR: Raw response is empty or invalid!");
+    }
     console.log("═══════════════════════════════════════════════════════════");
     
     rawResponse = rawResponse.replace(/^```json\s*/, "").replace(/```$/, "").trim();
@@ -777,6 +827,12 @@ Provide a helpful, conversational answer based on the column information, sample
     
     try {
       parsed = JSON.parse(rawResponse);
+      
+      // Check if parsed response has empty explanation
+      if (parsed && (!parsed.explanation || parsed.explanation.trim() === "")) {
+        console.warn("⚠️ Parsed JSON has empty explanation, treating as parse failure");
+        throw new Error("Empty explanation in parsed response");
+      }
     } catch (parseError) {
       console.error("JSON parse error, attempting retry:", parseError);
       console.error("Raw response preview:", rawResponse.substring(0, 200));
@@ -903,7 +959,7 @@ Provide a helpful, conversational answer based on the column information, sample
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-5-mini-2025-08-07",
+          model: "gpt-4o-mini",
           messages: [
                 { 
                   role: "system", 
@@ -974,7 +1030,8 @@ Return ONLY valid JSON, nothing else.`
         
         // Clean up the explanation - remove markdown formatting if present
         fallbackExplanation = fallbackExplanation
-          .replace(/\*\*([^*]+)\*\*/g, '**$1**') // Keep bold markdown
+          .replace(/\*\*([^*]+)\*\*/g, '$1') // Remove bold markdown, keep text
+          .replace(/\*([^*]+)\*/g, '$1') // Remove italic markdown, keep text
           .replace(/```[\s\S]*?```/g, '') // Remove code blocks
           .trim();
         
@@ -993,6 +1050,14 @@ Return ONLY valid JSON, nothing else.`
       }
     }
 
+    // Clean up any markdown formatting from explanation (remove ** and *)
+    if (parsed.explanation) {
+      parsed.explanation = parsed.explanation
+        .replace(/\*\*([^*]+)\*\*/g, '$1') // Remove bold markdown, keep text
+        .replace(/\*([^*]+)\*/g, '$1') // Remove italic markdown, keep text
+        .trim();
+    }
+    
     // Log parsed response for debugging
     console.log("📋 [Parsed Response] After JSON parsing:");
     console.log("   - Has SQL:", !!parsed.sql);
