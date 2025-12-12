@@ -73,7 +73,7 @@ ${idColumnsRemoved.length > 0 ? `\n⚠️ Note: The following 'id' column(s) wer
 Samples: ${preview}`;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-5-mini-2025-08-07",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: "Return JSON only. No explanations." },
         { role: "user", content: prompt },
@@ -88,7 +88,7 @@ Samples: ${preview}`;
       console.log("- Prompt tokens:", completion.usage.prompt_tokens || "N/A");
       console.log("- Completion tokens:", completion.usage.completion_tokens || "N/A");
       console.log("- Total tokens:", completion.usage.total_tokens || "N/A");
-      console.log("- Estimated cost (gpt-5-mini-2025-08-07):", `$${((completion.usage.prompt_tokens || 0) * 0.00015 / 1000 + (completion.usage.completion_tokens || 0) * 0.0006 / 1000).toFixed(4)}`);
+      console.log("- Estimated cost (gpt-4o-mini):", `$${((completion.usage.prompt_tokens || 0) * 0.00015 / 1000 + (completion.usage.completion_tokens || 0) * 0.0006 / 1000).toFixed(4)}`);
       console.log("- Finish reason:", completion.choices[0]?.finish_reason || "N/A");
     }
 
