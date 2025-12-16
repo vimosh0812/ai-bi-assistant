@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
           originalHeaders = Array.isArray(parsed) ? parsed : [];
         } catch {
           // If parsing fails, treat as comma-separated string
-          originalHeaders = file.original_headers.split(',').map(h => h.trim()).filter(h => h.length > 0);
+          originalHeaders = file.original_headers.split(',').map((h: string) => h.trim()).filter((h: string) => h.length > 0);
         }
       }
     }
