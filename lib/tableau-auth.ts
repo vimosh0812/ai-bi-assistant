@@ -50,16 +50,11 @@ export class TableauAuth {
 </tsRequest>`;
 
     try {
-      console.log('Authenticating with Tableau Server:', authUrl);
-      console.log('Request body:', xmlBody);
-      
       const response = await axios.post(authUrl, xmlBody, {
         headers: {
           'Content-Type': 'application/xml',
         },
       });
-
-      console.log('Authentication response:', response.data);
 
       // Check if response.data is already parsed (object) or needs parsing (string)
       let responseData = response.data;
@@ -103,9 +98,9 @@ export class TableauAuth {
         };
       }
     } catch (error: any) {
-      console.error('Tableau authentication failed:', error.response?.data || error.message);
-      console.error('Request URL:', authUrl);
-      console.error('Request body:', xmlBody);
+      // console.error('Tableau authentication failed:', error.response?.data || error.message);
+      // console.error('Request URL:', authUrl);
+      // console.error('Request body:', xmlBody);
       throw new Error(`Authentication failed: ${JSON.stringify(error.response?.data || error.message)}`);
     }
   }

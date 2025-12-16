@@ -85,6 +85,7 @@
     "@types/papaparse": "^5.3.16",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "baseline-browser-mapping": "^2.9.8",
     "ignore-loader": "^0.1.2",
     "typescript": "^5"
   }
