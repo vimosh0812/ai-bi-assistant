@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button";
 import { DEFAULT_NAMES } from "@/lib/config";
 import { createClient } from "@/lib/supabase/client";
 import TableauViz from "@/components/tableauviz";
-import { ArrowLeft, Edit3, Eye, BarChart3, TrendingUp, Home, Bot, Copy, Check } from "lucide-react";
+import { ArrowLeft, Edit3, Eye, EyeOff, BarChart3, TrendingUp, Home, Bot, Copy, Check, Download, FileText, Loader2 } from "lucide-react";
 import { OpenAIKPIAnalysis } from "@/types/kpi";
 import { KPIChart } from "@/components/kpi-chart";
 import { CSVChatbot } from "@/components/csv-chatbot";
+import { InsightsViewer } from "@/components/insights/insights-viewer";
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -63,6 +64,11 @@ export default function FileAnalyticsPage() {
   const [showPowerBIDialog, setShowPowerBIDialog] = useState(false);
   const [powerBIUrl, setPowerBIUrl] = useState("");
   const [isCopied, setIsCopied] = useState(false);
+  const [showInsightsView, setShowInsightsView] = useState(false);
+  const [hasInsights, setHasInsights] = useState(false);
+  const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
+  const [isDownloadingInsights, setIsDownloadingInsights] = useState(false);
+  const [triggerInsightsGeneration, setTriggerInsightsGeneration] = useState(false);
   const { toast } = useToast();
 
   // Fetch file details and CSV content
@@ -105,6 +111,7 @@ export default function FileAnalyticsPage() {
 
         setFileDetails(data);
         setHasKpiAnalysis(data.has_kpi_analysis || false);
+        setHasInsights(data.insights && data.insights.trim() !== '');
 
         // Fetch folder name for breadcrumb
         const { data: folderData, error: folderError } = await supabase
@@ -433,7 +440,446 @@ export default function FileAnalyticsPage() {
   const viewKpiAnalytics = () => {
     console.log("viewKpiAnalytics called", { currentShowKpiView: showKpiView, hasKpiAnalysis, responseSuccess: response?.success });
     setShowKpiView(!showKpiView);
+    if (showInsightsView) setShowInsightsView(false); // Hide insights when showing KPI
   };
+
+  const generateAnnexSection = async (kpiAnalysis: OpenAIKPIAnalysis, fileDetails: any): Promise<string> => {
+    try {
+      const normalizedFileId = Array.isArray(fileId) ? fileId[0] : fileId;
+      
+      // Get execution results for all metrics
+      const { data: executionResults } = await supabase
+        .from("kpi_execution_results")
+        .select("*")
+        .eq("kpi_analysis_id", fileDetails.kpi_analysis_id)
+        .eq("execution_success", true)
+        .order("metric_index");
+      
+      const resultsMap = new Map<number, any>();
+      (executionResults || []).forEach((result: any) => {
+        resultsMap.set(result.metric_index, result);
+      });
+      
+      let annexHTML = `
+        <div style="page-break-before: always; margin-top: 40px;">
+          <h1 style="font-size: 24pt; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px;">Annex: KPI Metrics Reference</h1>
+          <p style="margin-bottom: 30px; color: #666;">This annex provides a reference list of all KPI metrics analyzed in the insights document.</p>
+      `;
+      
+      kpiAnalysis.metrics.forEach((metric: any, index: number) => {
+        const executionResult = resultsMap.get(index);
+        const yAxisData = executionResult?.y_axis_results || [];
+        
+        annexHTML += `
+          <div style="page-break-inside: avoid; margin-bottom: 40px; padding-bottom: 20px; border-bottom: 1px solid #eee;">
+            <h2 style="font-size: 18pt; margin-bottom: 10px; color: #333;">${metric.name}</h2>
+            <p style="margin-bottom: 15px; color: #666;">${metric.description}</p>
+        `;
+        
+        // Add data table only if it has 20 rows or less
+        if (yAxisData && yAxisData.length > 0 && typeof yAxisData[0] === 'object' && yAxisData.length <= 20) {
+          annexHTML += `
+            <h3 style="font-size: 14pt; margin-top: 20px; margin-bottom: 15px; color: #333;">Data Table</h3>
+            <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 10pt;">
+              <thead>
+                <tr style="background-color: #f2f2f2;">
+                  ${Object.keys(yAxisData[0]).map((key: string) => `<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">${key}</th>`).join('')}
+                </tr>
+              </thead>
+              <tbody>
+                ${yAxisData.map((row: any) => `
+                  <tr>
+                    ${Object.values(row).map((val: any) => `<td style="border: 1px solid #ddd; padding: 8px;">${typeof val === 'number' ? val.toLocaleString() : String(val)}</td>`).join('')}
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `;
+        }
+        
+        annexHTML += `</div>`;
+      });
+      
+      annexHTML += `</div>`;
+      return annexHTML;
+    } catch (error) {
+      console.error("Error generating annex:", error);
+      return '';
+    }
+  };
+
+
+  const handleDownloadInsights = async () => {
+    if (!fileDetails?.insights || fileDetails.insights.trim() === '') {
+      toast({
+        title: "Error",
+        description: "No insights document available",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsDownloadingInsights(true);
+
+    try {
+      const fileName = (fileDetails?.name || fileDetails?.file_name || 'document')
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[^a-z0-9]/gi, '_');
+      
+      let insightsHTML = fileDetails.insights;
+      
+      // Add Annex section with all KPI charts and tables if available
+      if (kpiAnalysis && kpiAnalysis.metrics && kpiAnalysis.metrics.length > 0) {
+        const annexHTML = await generateAnnexSection(kpiAnalysis, fileDetails);
+        insightsHTML = insightsHTML.replace('</body>', `${annexHTML}</body>`);
+      }
+      
+      // Create a completely isolated iframe to prevent style interference
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '-9999px';
+      iframe.style.width = '210mm';
+      iframe.style.height = '297mm';
+      iframe.style.border = 'none';
+      iframe.style.visibility = 'hidden';
+      document.body.appendChild(iframe);
+      
+      // Wait for iframe to be ready - improved loading
+      await new Promise<void>((resolve) => {
+        const checkIframe = () => {
+          if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') {
+            resolve();
+          } else {
+            iframe.onload = () => resolve();
+            iframe.src = 'about:blank';
+            // Fallback timeout
+            setTimeout(() => resolve(), 500);
+          }
+        };
+        checkIframe();
+      });
+      
+      const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!iframeDoc) {
+        throw new Error('Failed to access iframe document');
+      }
+      
+      // Add A4 styling with proper margins, padding, and page breaks
+      const styledHTML = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            @page {
+              size: A4;
+              margin: 0;
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+            }
+            body {
+              width: 210mm;
+              margin: 0;
+              padding: 25mm 15mm 20mm 15mm;
+              font-family: Arial, sans-serif;
+              font-size: 12pt;
+              line-height: 1.6;
+              color: #000;
+              background: #fff;
+            }
+            .content-wrapper {
+              width: 100%;
+            }
+            h1 {
+              font-size: 24pt;
+              margin-top: 0;
+              margin-bottom: 0.5em;
+              color: #000;
+              page-break-after: avoid;
+            }
+            h2 {
+              font-size: 20pt;
+              margin-top: 1.5em;
+              margin-bottom: 0.5em;
+              color: #000;
+              page-break-after: avoid;
+            }
+            h3 {
+              font-size: 16pt;
+              margin-top: 1em;
+              margin-bottom: 0.5em;
+              color: #000;
+              page-break-after: avoid;
+            }
+            h4, h5, h6 {
+              margin-top: 1em;
+              margin-bottom: 0.5em;
+              color: #000;
+              page-break-after: avoid;
+            }
+            p {
+              margin-bottom: 1em;
+              color: #000;
+              orphans: 3;
+              widows: 3;
+            }
+            ul, ol {
+              margin-bottom: 1em;
+              padding-left: 2em;
+            }
+            li {
+              margin-bottom: 0.5em;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin: 1em 0;
+              page-break-inside: auto;
+            }
+            thead {
+              display: table-header-group;
+            }
+            tfoot {
+              display: table-footer-group;
+            }
+            tr {
+              page-break-inside: avoid;
+              page-break-after: auto;
+            }
+            /* Prevent breaking inside important elements */
+            h1, h2, h3, h4, h5, h6 {
+              page-break-after: avoid;
+              page-break-inside: avoid;
+            }
+            /* Allow breaking between paragraphs and sections */
+            p, div, section {
+              orphans: 3;
+              widows: 3;
+            }
+            th, td {
+              border: 1px solid #ddd;
+              padding: 8px;
+              text-align: left;
+              color: #000;
+            }
+            th {
+              background-color: #f2f2f2;
+            }
+            img {
+              max-width: 100%;
+              height: auto;
+              display: block;
+              margin: 1em 0;
+              page-break-inside: avoid;
+            }
+            .page-break {
+              page-break-before: always;
+            }
+            .no-break {
+              page-break-inside: avoid;
+            }
+            @media print {
+              body {
+                padding: 25mm 15mm 20mm 15mm;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="content-wrapper">
+            ${insightsHTML.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')}
+          </div>
+        </body>
+        </html>
+      `;
+      
+      iframeDoc.open();
+      iframeDoc.write(styledHTML);
+      iframeDoc.close();
+      
+      // Wait for iframe content to fully render
+      await new Promise((resolve) => {
+        const checkReady = () => {
+          if (iframeDoc.readyState === 'complete' && iframeDoc.body) {
+            // Wait for fonts and styles to load, and ensure layout is complete
+            iframeDoc.defaultView?.requestAnimationFrame(() => {
+              iframeDoc.defaultView?.requestAnimationFrame(() => {
+                setTimeout(resolve, 1500);
+              });
+            });
+          } else {
+            setTimeout(checkReady, 100);
+          }
+        };
+        // Start checking after a short delay
+        setTimeout(checkReady, 100);
+      });
+      
+      // Wait for images to load
+      const images = iframeDoc.querySelectorAll('img');
+      const imagePromises = Array.from(images).map((img: HTMLImageElement) => {
+        return new Promise((resolve) => {
+          if (img.complete && img.naturalHeight !== 0) {
+            resolve(null);
+          } else {
+            img.onload = () => resolve(null);
+            img.onerror = () => resolve(null);
+            // Timeout after 5 seconds
+            setTimeout(() => resolve(null), 5000);
+          }
+        });
+      });
+      
+      await Promise.all(imagePromises);
+      
+      // Additional wait to ensure everything is rendered
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      
+      // Use html2canvas and jsPDF to generate PDF
+      const html2canvas = (await import('html2canvas')).default;
+      const { jsPDF } = await import('jspdf');
+      
+      const bodyElement = iframeDoc.body;
+      if (!bodyElement) {
+        throw new Error('Body element not found');
+      }
+      
+      // Get the actual content dimensions
+      const contentWidth = bodyElement.scrollWidth;
+      const contentHeight = bodyElement.scrollHeight;
+      
+      const canvas = await html2canvas(bodyElement, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        width: contentWidth,
+        height: contentHeight,
+        backgroundColor: '#ffffff',
+        windowWidth: contentWidth,
+        windowHeight: contentHeight,
+      });
+      
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      
+      // A4 dimensions in mm with proper margins
+      const pageWidth = 210;
+      const pageHeight = 297;
+      const topMargin = 25; // Top margin in mm
+      const bottomMargin = 20; // Bottom margin in mm (includes footer space)
+      const sideMargin = 15; // Side margins in mm
+      
+      // Calculate dimensions
+      const pdfContentWidth = pageWidth - (sideMargin * 2);
+      const pdfContentHeight = pageHeight - topMargin - bottomMargin;
+      
+      // Convert canvas pixels to mm
+      const canvasWidthPx = canvas.width;
+      const canvasHeightPx = canvas.height;
+      
+      // Calculate the width and height in mm for the PDF
+      const imgWidthMm = pdfContentWidth;
+      const imgHeightMm = (canvasHeightPx * pdfContentWidth) / canvasWidthPx;
+      
+      // Calculate how many pages we need
+      const totalPages = Math.ceil(imgHeightMm / pdfContentHeight);
+      
+      // Add pages with proper positioning and margins
+      for (let i = 0; i < totalPages; i++) {
+        if (i > 0) {
+          pdf.addPage();
+        }
+        
+        // Calculate the source Y position in pixels
+        const sourceYPx = (i * pdfContentHeight * canvasWidthPx) / pdfContentWidth;
+        const maxSourceHeightPx = canvasHeightPx - sourceYPx;
+        const desiredSourceHeightPx = (pdfContentHeight * canvasWidthPx) / pdfContentWidth;
+        const sourceHeightPx = Math.min(desiredSourceHeightPx, maxSourceHeightPx);
+        
+        // Create a temporary canvas for this page
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = canvasWidthPx;
+        pageCanvas.height = Math.ceil(sourceHeightPx);
+        const pageCtx = pageCanvas.getContext('2d');
+        
+        if (pageCtx && sourceHeightPx > 0) {
+          // Clear canvas with white background
+          pageCtx.fillStyle = '#ffffff';
+          pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+          
+          // Draw the portion of the original canvas
+          pageCtx.drawImage(
+            canvas,
+            0, Math.floor(sourceYPx), canvasWidthPx, Math.ceil(sourceHeightPx),
+            0, 0, canvasWidthPx, Math.ceil(sourceHeightPx)
+          );
+          
+          // Compress image quality for smaller PDF size
+          const pageImgData = pageCanvas.toDataURL('image/jpeg', 0.85); // Use JPEG with 85% quality
+          const pageImgHeightMm = (sourceHeightPx * pdfContentWidth) / canvasWidthPx;
+          
+          // Ensure we don't exceed page height
+          const finalHeight = Math.min(pageImgHeightMm, pdfContentHeight);
+          
+          // Add image with proper margins (top and side margins)
+          pdf.addImage(
+            pageImgData,
+            'JPEG', // Use JPEG instead of PNG for compression
+            sideMargin, // Left margin
+            topMargin, // Top margin
+            pdfContentWidth,
+            finalHeight
+          );
+          
+          // Add page number in footer
+          const pageNumberY = pageHeight - (bottomMargin / 2);
+          pdf.setFontSize(10);
+          pdf.setTextColor(102, 102, 102); // Gray color
+          pdf.text(
+            `Page ${i + 1} of ${totalPages}`,
+            pageWidth / 2, // Center horizontally
+            pageNumberY,
+            { align: 'center' }
+          );
+        }
+      }
+      
+      // Compress PDF
+      const pdfOutput = pdf.output('arraybuffer');
+      const compressedPdf = new Uint8Array(pdfOutput);
+      
+      // Create blob and download
+      const blob = new Blob([compressedPdf], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileName}-insights.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      // Clean up iframe
+      document.body.removeChild(iframe);
+      
+      toast({
+        title: "Success",
+        description: "Insights document downloaded as PDF",
+      });
+    } catch (error: any) {
+      console.error("PDF generation error:", error);
+      toast({
+        title: "Error",
+        description: "Failed to generate PDF. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsDownloadingInsights(false);
+    }
+  };
+
 
   const handleDeleteMetric = async (metricIndex: number) => {
     setIsDeleting(true);
@@ -558,6 +1004,7 @@ export default function FileAnalyticsPage() {
           
           {/* View Analytics Button - Only show if analytics generated */}
           {hasKpiAnalysis && (
+            <>
             <Button
               onClick={() => {
                 console.log("View Analytics clicked", { showKpiView, hasKpiAnalysis, responseSuccess: response?.success });
@@ -570,6 +1017,56 @@ export default function FileAnalyticsPage() {
               <TrendingUp className="h-4 w-4" />
               {showKpiView ? "Hide Analytics" : "View Analytics"}
             </Button>
+              
+              {/* Insights Button */}
+              {hasInsights ? (
+                <Button
+                  onClick={handleDownloadInsights}
+                  disabled={isDownloadingInsights}
+                  className="flex items-center gap-2 cursor-pointer bg-white text-black border-black hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  variant="outline"
+                  type="button"
+                >
+                  {isDownloadingInsights ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Downloading...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="h-4 w-4" />
+                      Download Insights
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowInsightsView(true);
+                    if (showKpiView) setShowKpiView(false);
+                    setTriggerInsightsGeneration(true);
+                  }}
+                  disabled={isGeneratingInsights}
+                  className="flex items-center gap-2 cursor-pointer bg-white text-black border-black hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  variant="outline"
+                  type="button"
+                >
+                  {isGeneratingInsights ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="h-4 w-4" />
+                      Generate Insights
+                    </>
+                  )}
+                </Button>
+              )}
+            </>
           )}
           
           {/* Ask AI Button */}
@@ -704,6 +1201,45 @@ export default function FileAnalyticsPage() {
               <p className="text-gray-500">No KPI analysis available</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Insights Generation View */}
+      {showInsightsView && !response?.success && fileDetails && hasKpiAnalysis && !hasInsights && (
+        <div className="space-y-6 mt-6">
+          <div className="border-b pb-4">
+            <h2 className="text-2xl font-bold text-gray-900">Data Insights</h2>
+            <p className="text-gray-600 mt-1">
+              Generate comprehensive insights document from your KPI analysis
+            </p>
+          </div>
+          <InsightsViewer 
+            fileId={Array.isArray(fileId) ? fileId[0] : fileId} 
+            fileDetails={fileDetails}
+            triggerGeneration={triggerInsightsGeneration}
+            onGeneratingChange={(isGenerating) => {
+              setIsGeneratingInsights(isGenerating);
+              if (isGenerating && triggerInsightsGeneration) {
+                setTriggerInsightsGeneration(false);
+              }
+            }}
+            onInsightsGenerated={() => {
+              setTriggerInsightsGeneration(false);
+              const refreshFileDetails = async () => {
+                const normalizedFileId = Array.isArray(fileId) ? fileId[0] : fileId;
+                const { data } = await supabase
+                  .from("files")
+                  .select("*")
+                  .eq("id", normalizedFileId)
+                  .single();
+                if (data) {
+                  setFileDetails(data);
+                  setHasInsights(data.insights && data.insights.trim() !== '');
+                }
+              };
+              refreshFileDetails();
+            }}
+          />
         </div>
       )}
 
