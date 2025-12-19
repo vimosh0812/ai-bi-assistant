@@ -173,8 +173,15 @@ export async function POST(req: Request) {
         .replace(/^[0-9]/, 'col_$&') // Prefix numeric columns with 'col_'
     );
     
-    const prompt = `You are an expert data analyst and KPI specialist. 
-    Analyze the provided dataset and generate comprehensive KPI analysis.
+    const prompt = `You are an expert data analyst and KPI specialist with expertise across ALL business domains (sales, healthcare, manufacturing, logistics, HR, finance, operations, etc.). 
+    Analyze the provided dataset and generate comprehensive KPI analysis that is SPECIFICALLY TAILORED to the domain and context of this dataset.
+    
+    CRITICAL: DOMAIN DETECTION AND ADAPTATION:
+    - FIRST, analyze the column names, data types, and sample values to identify the DOMAIN of this dataset
+    - Domains can include: Sales/Retail, Healthcare/Medical, Manufacturing/Production, Logistics/Supply Chain, Human Resources, Finance/Accounting, Operations, Education, Real Estate, Marketing, Customer Service, IT/Technology, etc.
+    - ADAPT your KPI suggestions, metric names, descriptions, and analysis to match the detected domain
+    - Use domain-appropriate terminology and metrics (e.g., "Patient Visits" for healthcare, "Production Units" for manufacturing, "Order Fulfillment" for logistics)
+    - DO NOT assume this is sales data - analyze the actual data structure to determine the domain
     
     Dataset Information:
     Headers: ${headersWithoutId.join(", ")}
@@ -222,7 +229,7 @@ export async function POST(req: Request) {
     - Numeric columns need CAST(column_name AS NUMERIC) for calculations
     - Date columns are preprocessed as separate columns: Date_year, Date_month, Date_day (cast as NUMERIC)
     - Always cast before performing SUM(), AVG(), MAX(), MIN(), or any arithmetic operations
-    - Examples: SUM(CAST(Price AS NUMERIC)), AVG(CAST(Revenue AS NUMERIC)), CAST(Date_year AS NUMERIC)
+    - Examples: SUM(CAST(amount AS NUMERIC)), AVG(CAST(value AS NUMERIC)), CAST(Date_year AS NUMERIC)
     - Date examples: GROUP BY CAST(Date_year AS NUMERIC), ORDER BY CAST(Date_year AS NUMERIC)
     - REMINDER: Every time you write a numeric operation, ask yourself "Did I cast it to NUMERIC?"
     
@@ -232,7 +239,9 @@ export async function POST(req: Request) {
     - Use the "Database Column Names" (sanitized versions) in your SQL queries
     - Original headers are for reference only - use sanitized names in SQL
     - Example: "Payment Method" becomes "payment_method" in SQL queries
-    - Example: "Total Revenue" becomes "total_revenue" in SQL queries
+    - Example: "Total Amount" becomes "total_amount" in SQL queries
+    - Example: "Patient Age" becomes "patient_age" in SQL queries
+    - Example: "Production Units" becomes "production_units" in SQL queries
     
     CHART GENERATION RULES:
     - Use CATEGORICAL columns (≤10 unique values) for X-axis labels ONLY
@@ -290,25 +299,33 @@ export async function POST(req: Request) {
     5. X-axis query - SELECT DISTINCT [categorical_column] FROM data ORDER BY [categorical_column]
     
     IMPORTANT: All numeric calculations MUST use CAST() functions since data is stored as TEXT:
-    - Use SUM(CAST(Price AS NUMERIC)) instead of SUM(Price)
-    - Use AVG(CAST(Revenue AS NUMERIC)) instead of AVG(Revenue)
+    - Use SUM(CAST(amount AS NUMERIC)) instead of SUM(amount)
+    - Use AVG(CAST(value AS NUMERIC)) instead of AVG(value)
     - Use CAST(Date_year AS NUMERIC), CAST(Date_month AS NUMERIC), CAST(Date_day AS NUMERIC) for date operations
     - REMEMBER: Always cast numeric columns to NUMERIC type for any mathematical operations
+    - Adapt column names to match the actual domain (e.g., "quantity", "units", "count", "score", "rating", etc.)
     
-    POTENTIAL KPIs (only include if applicable to the data):
-    1. CHURN ANALYSIS - Only if there are customer/user identifiers and time-based data
-    2. ROI ANALYSIS - Only if there are financial columns (revenue, cost, profit, etc.)
-    3. OTIF ANALYSIS - Only if there are delivery/shipping related columns
-    4. REVENUE ANALYSIS - If there are revenue/sales columns
-    5. GROWTH ANALYSIS - If there are time-series or growth indicators
-    6. PERFORMANCE ANALYSIS - If there are performance metrics
-    7. CUSTOMER ANALYSIS - If there are customer-related columns
-    8. OPERATIONAL ANALYSIS - If there are operational metrics
+    POTENTIAL KPIs (only include if applicable to the data - ADAPT to the detected domain):
+    1. CHURN/RETENTION ANALYSIS - Only if there are customer/user/patient/employee identifiers and time-based data
+    2. ROI/EFFICIENCY ANALYSIS - Only if there are financial columns (revenue, cost, profit, budget, expenses, etc.)
+    3. OTIF/ON-TIME ANALYSIS - Only if there are delivery/shipping/appointment/schedule related columns
+    4. REVENUE/SALES/INCOME ANALYSIS - If there are revenue/sales/income/earnings columns
+    5. GROWTH/TREND ANALYSIS - If there are time-series or growth indicators
+    6. PERFORMANCE/METRICS ANALYSIS - If there are performance metrics, scores, ratings, or KPIs
+    7. CUSTOMER/PATIENT/USER ANALYSIS - If there are customer/patient/user/client related columns
+    8. OPERATIONAL/PROCESS ANALYSIS - If there are operational metrics, process steps, or workflow data
+    9. HEALTHCARE METRICS - If healthcare domain: patient visits, treatments, outcomes, readmissions, etc.
+    10. MANUFACTURING METRICS - If manufacturing domain: production units, defect rates, cycle time, etc.
+    11. HR METRICS - If HR domain: employee count, turnover, satisfaction, attendance, etc.
+    12. LOGISTICS METRICS - If logistics domain: delivery times, inventory levels, warehouse efficiency, etc.
+    
+    IMPORTANT: Generate KPIs that are RELEVANT to the detected domain. Do not force sales metrics on non-sales data!
     
     TIME-SERIES ANALYSIS REQUIREMENTS:
     - If DATE columns are found, prioritize YEARLY analysis for high-level trends
     - Only create monthly analysis if it reveals different patterns than yearly
-    - Avoid creating both "Total Sales by Year" and "Total Sales by Month" - choose the most meaningful one
+    - Avoid creating duplicate metrics with different time granularities - choose the most meaningful one
+    - Use domain-appropriate metric names (e.g., "Total Orders by Year" for e-commerce, "Patient Visits by Year" for healthcare, "Production Units by Year" for manufacturing)
     - Use appropriate date functions in SQL (YEAR(), MONTH(), etc.)
     - Generate line charts for time-series data ONLY if there are >= 3 unique X-axis values
     - If time-series data has < 3 unique X-axis values, use BAR chart instead
@@ -317,18 +334,19 @@ export async function POST(req: Request) {
     - CRITICAL RULE: Only generate PIE or DOUGHNUT charts if there are ≤15 unique values
     - If there are MORE than 15 unique values, DO NOT generate pie/donut charts - use BAR chart instead
     - For CATEGORICAL columns (≤15 unique values), generate PIE or DOUGHNUT charts
-    - Focus on business context: market share, distribution, composition
-    - Examples: Product category distribution, Customer segment breakdown, Region analysis
-    - Use meaningful business titles and descriptions
+    - Focus on domain-appropriate context: distribution, composition, breakdown by category
+    - Examples: Category distribution, Segment breakdown, Region analysis, Department distribution, Treatment type breakdown, Product type distribution
+    - Use meaningful, domain-appropriate titles and descriptions
     - ALWAYS verify the count of unique values before generating pie/donut charts
     
     Generate 6 relevant KPIs based on what makes sense for this specific dataset.
     Prioritize time-series analysis if date columns exist, and pie charts for categorical data.
     
     IMPORTANT: Avoid creating duplicate or redundant metrics. For example:
-    - Don't create both "Total Sales by Year" and "Total Sales by Month" - choose the most meaningful one
+    - Don't create both "Total [Metric] by Year" and "Total [Metric] by Month" - choose the most meaningful one
     - Don't create multiple metrics that show the same data with different time granularities
     - Focus on unique insights and different aspects of the data
+    - Ensure metric names are domain-appropriate (e.g., use "Patient Visits" for healthcare, not "Sales")
     
     Return a JSON object with this structure (only include applicable KPIs):
     REMEMBER: Always use CAST(column AS NUMERIC) for any numeric operations!
@@ -350,7 +368,8 @@ export async function POST(req: Request) {
             "dataLabels": true
           },
           NOTE: Do NOT include "colors" in chartConfig - colors are automatically applied by the system based on chart type.
-          "category": "financial|operational|customer|growth|efficiency|churn|roi|otif"
+          "category": "financial|operational|customer|growth|efficiency|churn|roi|otif|healthcare|manufacturing|logistics|hr|quality|performance|productivity|safety"
+          NOTE: Choose the category that best fits the domain and metric type. Use domain-specific categories when appropriate (e.g., "healthcare" for medical metrics, "manufacturing" for production metrics).
         }
       ],
       "summary": "Overall summary of the KPI analysis and insights based on the data structure"
@@ -370,7 +389,8 @@ export async function POST(req: Request) {
     - Always include ORDER BY for consistent results
     - Use sanitized column names in chartConfig.xAxis and chartConfig.yAxis
     - Make queries executable against the actual data structure
-    - Include proper aliases for calculated fields (e.g., "as total_revenue")
+    - Include proper aliases for calculated fields (e.g., "as total_amount", "as total_count", "as metric_value")
+    - Use domain-appropriate aliases (e.g., "as total_visits" for healthcare, "as total_units" for manufacturing)
     - For time-series: use date columns in ORDER BY for chronological order
     - Use PostgreSQL syntax: CAST(column AS NUMERIC), column::NUMERIC, etc.
     - CRITICAL: Always use sanitized column names (lowercase with underscores) in SQL queries
@@ -381,15 +401,16 @@ export async function POST(req: Request) {
     - For comparisons: WHERE CAST(column_name AS NUMERIC) > 100
     - For date operations: Use preprocessed date columns (Date_year, Date_month, Date_day) as NUMERIC
     - ALWAYS REMEMBER: When you see numeric values, immediately think CAST(column AS NUMERIC)
-    - Examples:
-      * SUM(CAST(Price AS NUMERIC)) instead of SUM(Price)
-      * AVG(CAST(Revenue AS NUMERIC)) instead of AVG(Revenue)
-      * WHERE CAST(Age AS NUMERIC) > 18 instead of WHERE Age > 18
-      * SUM(CAST(Price AS NUMERIC) * CAST(Quantity AS NUMERIC)) for calculations
-      * AVG(CAST(Salary AS NUMERIC)) for averages
-      * MAX(CAST(Revenue AS NUMERIC)) for maximum values
-      * MIN(CAST(Cost AS NUMERIC)) for minimum values
+    - Examples (domain-agnostic):
+      * SUM(CAST(amount AS NUMERIC)) instead of SUM(amount)
+      * AVG(CAST(value AS NUMERIC)) instead of AVG(value)
+      * WHERE CAST(age AS NUMERIC) > 18 instead of WHERE age > 18
+      * SUM(CAST(price AS NUMERIC) * CAST(quantity AS NUMERIC)) for calculations
+      * AVG(CAST(salary AS NUMERIC)) for averages
+      * MAX(CAST(revenue AS NUMERIC)) for maximum values
+      * MIN(CAST(cost AS NUMERIC)) for minimum values
       * For dates: CAST(Date_year AS NUMERIC), CAST(Date_month AS NUMERIC), CAST(Date_day AS NUMERIC)
+    - Adapt column names to match actual columns in the dataset (use actual sanitized column names, not generic examples)
     
     TIME-SERIES SQL GUIDELINES (PostgreSQL with preprocessed date columns):
     - For yearly analysis: GROUP BY CAST(Date_year AS NUMERIC), ORDER BY CAST(Date_year AS NUMERIC)
@@ -422,17 +443,24 @@ export async function POST(req: Request) {
     
     PIE CHART SQL GUIDELINES:
     - For categorical data: SELECT categorical_column, COUNT(*) as count FROM data GROUP BY categorical_column
-    - For business context: SELECT category, SUM(value) as total FROM data GROUP BY category
-    - Use meaningful business column names in results
+    - For aggregated context: SELECT category, SUM(CAST(value_column AS NUMERIC)) as total FROM data GROUP BY category
+    - Use meaningful, domain-appropriate column names in results
     - Order by count/total DESC for better visualization
-    - CRITICAL: Before generating pie/donut chart, verify the result will have ≤15 rows. If more than 15 rows, use BAR chart instead`;
+    - CRITICAL: Before generating pie/donut chart, verify the result will have ≤15 rows. If more than 15 rows, use BAR chart instead
+    
+    FINAL REMINDERS:
+    - Analyze the dataset to determine its domain (sales, healthcare, manufacturing, logistics, HR, etc.)
+    - Generate KPIs that are SPECIFIC to the detected domain
+    - Use domain-appropriate terminology in metric names, descriptions, and chart titles
+    - Do NOT assume this is sales data - adapt to the actual domain
+    - Ensure all examples and metric names match the context of the data`;
 
     let completion;
     try {
       completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "You are an expert data analyst and KPI specialist with deep knowledge of business metrics and data visualization." },
+          { role: "system", content: "You are an expert data analyst and KPI specialist with deep knowledge across ALL business domains (sales, healthcare, manufacturing, logistics, HR, finance, operations, etc.). You adapt your analysis to match the specific domain of each dataset, using appropriate terminology and metrics for that domain." },
           { role: "user", content: prompt },
         ],
         temperature: 0.3,
