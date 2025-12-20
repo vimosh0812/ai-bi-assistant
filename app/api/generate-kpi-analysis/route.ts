@@ -494,37 +494,58 @@ export async function POST(req: Request) {
 
     let parsed: OpenAIKPIAnalysis;
     try {
-      // Clean up the response to ensure valid JSON
-      const cleanedResponse = rawResponse
-        .replace(/^```json\s*/, "")
-        .replace(/```$/, "")
+      // Extract JSON from markdown code block if present
+      let jsonString = rawResponse.trim();
+      
+      // Try to find JSON in markdown code block (```json ... ```)
+      const jsonBlockMatch = jsonString.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (jsonBlockMatch) {
+        jsonString = jsonBlockMatch[1].trim();
+      } else {
+        // If no code block, try to find JSON object directly
+        // Look for the first { and last } to extract JSON
+        const firstBrace = jsonString.indexOf('{');
+        const lastBrace = jsonString.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          jsonString = jsonString.substring(firstBrace, lastBrace + 1);
+        }
+      }
+      
+      // Clean up any remaining markdown artifacts
+      jsonString = jsonString
+        .replace(/^```json\s*/i, "")
+        .replace(/^```\s*/i, "")
+        .replace(/```\s*$/i, "")
         .trim();
       
-      parsed = JSON.parse(cleanedResponse);
+      parsed = JSON.parse(jsonString);
+      
+      // Validate that we have valid metrics
+      if (!parsed.metrics || !Array.isArray(parsed.metrics) || parsed.metrics.length === 0) {
+        throw new Error("No valid metrics found in response");
+      }
+      
+      // Validate each metric has required fields
+      const validMetrics = parsed.metrics.filter((metric: any) => 
+        metric.name && 
+        metric.sqlQuery && 
+        metric.chartType && 
+        metric.chartConfig
+      );
+      
+      if (validMetrics.length === 0) {
+        throw new Error("No valid metrics with required fields found");
+      }
+      
+      // Only use valid metrics
+      parsed.metrics = validMetrics;
+      
     } catch (parseError) {
       console.error("Failed to parse OpenAI KPI response:", parseError);
-      console.log("Raw response that failed to parse:", rawResponse);
+      console.log("Raw response that failed to parse:", rawResponse.substring(0, 500)); // Log first 500 chars
       
-      // Return a fallback structure
-      parsed = {
-        metrics: [
-          {
-            name: "Data Overview",
-            sqlQuery: "SELECT COUNT(*) as total_records FROM data",
-            xAxisQuery: "SELECT DISTINCT 'Total Records' as label FROM data",
-            description: "Basic data overview analysis",
-            chartType: "bar",
-            chartConfig: {
-              title: "Data Overview",
-              xAxis: "label",
-              yAxis: "count",
-              dataLabels: true
-            },
-            category: "operational"
-          }
-        ],
-        summary: "KPI analysis generated with fallback metrics due to parsing error."
-      };
+      // Throw error instead of returning fallback - let the caller handle it
+      throw new Error(`Failed to parse KPI analysis response: ${parseError instanceof Error ? parseError.message : 'Unknown parsing error'}`);
     }
 
     // Validate and enforce chart type rules: Line charts require >= 3 X-axis values

@@ -27,10 +27,22 @@ async function executeAndStoreKPIQueries(
     return executedResults;
   }
 
+  // Validate metrics array exists and has items
+  if (!kpiAnalysis.metrics || !Array.isArray(kpiAnalysis.metrics) || kpiAnalysis.metrics.length === 0) {
+    console.error("❌ No metrics to execute - metrics array is empty or invalid");
+    return [];
+  }
+
   console.log(`Starting execution of ${kpiAnalysis.metrics.length} KPI queries on table: ${tableName}`);
 
   for (let i = 0; i < kpiAnalysis.metrics.length; i++) {
     const metric = kpiAnalysis.metrics[i];
+    
+    // Skip invalid metrics
+    if (!metric || !metric.name || !metric.sqlQuery) {
+      console.warn(`⚠️ Skipping invalid metric at index ${i}: missing required fields`);
+      continue;
+    }
     
     try {
       console.log(`\n--- Executing KPI ${i + 1}/${kpiAnalysis.metrics.length}: ${metric.name} ---`);

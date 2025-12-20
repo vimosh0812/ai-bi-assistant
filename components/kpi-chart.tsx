@@ -79,13 +79,34 @@ export function KPIChart({
     setActualChartType(chartType);
   }, [chartType]);
 
-  // Load chart data from stored execution results (primary method)
+  // Load chart data from stored execution results ONLY (no live execution)
   useEffect(() => {
     const loadChartData = async () => {
-      console.log('📊 [CHART LOAD] Loading chart data for:', { title, kpiAnalysisId, metricIndex, dataSource });
+      const startTime = Date.now();
+      setError(null);
+      setChartData(null); // Clear previous data to prevent showing stale data
       
-      // If we have stored results, we don't need the original data
-      if (kpiAnalysisId && metricIndex !== undefined) {
+      console.log('📊 [CHART LOAD] Loading chart data for:', { title, kpiAnalysisId, metricIndex });
+      
+      // Require kpiAnalysisId and metricIndex - data should already be stored
+      if (!kpiAnalysisId || metricIndex === undefined) {
+        console.error('❌ [CHART LOAD] Missing required parameters:', { kpiAnalysisId, metricIndex });
+        setError("Chart data not available. Please regenerate KPI analysis.");
+        setLoading(false);
+        return;
+      }
+      
+      // Only show loading skeleton if it takes more than 100ms
+      // This prevents the flash/glitch for very fast loads
+      let showLoading = false;
+      const loadingTimeout = setTimeout(() => {
+        if (!showLoading) {
+          setLoading(true);
+          showLoading = true;
+        }
+      }, 100);
+      
+      try {
         console.log('📊 [CHART LOAD] Fetching stored execution results...', {
           kpiAnalysisId,
           metricIndex,
@@ -95,137 +116,62 @@ export function KPIChart({
         const response = await fetch(`/api/get-kpi-execution-results?kpiAnalysisId=${kpiAnalysisId}&metricIndex=${metricIndex}`);
         const result = await response.json();
         
+        const loadTime = Date.now() - startTime;
         console.log('📊 [CHART LOAD] Execution results response:', {
           success: result.success,
           resultsCount: result.results?.length || 0,
-          fullResponse: result
+          loadTime: `${loadTime}ms`
         });
         
-          if (result.success && result.results.length > 0) {
-            const executionResult = result.results[0];
-            
-            console.log('📊 [CHART LOAD] Execution result details:', {
-              executionSuccess: executionResult.execution_success,
-              yAxisResultsCount: executionResult.y_axis_results?.length || 0,
-              xAxisResultsCount: executionResult.x_axis_results?.length || 0,
-              metricName: executionResult.metric_name,
-              sqlQuery: executionResult.sql_query,
-              xAxisQuery: executionResult.x_axis_query,
-              sampleYAxis: executionResult.y_axis_results?.slice(0, 2),
-              sampleXAxis: executionResult.x_axis_results?.slice(0, 2)
-            });
-            
-            if (executionResult.execution_success && executionResult.y_axis_results && executionResult.y_axis_results.length > 0) {
-              console.log('✅ [CHART LOAD] Using stored execution results for chart');
-              setChartData(generateChartDataFromSQL(executionResult.y_axis_results, executionResult.x_axis_results, chartConfig));
-              setTableData(executionResult.y_axis_results || []);
-              setDataSource('stored');
-              return;
-            } else {
-              console.warn('⚠️ [CHART LOAD] Stored execution result is not valid:', {
-                executionSuccess: executionResult.execution_success,
-                hasYAxisResults: !!executionResult.y_axis_results,
-                yAxisResultsLength: executionResult.y_axis_results?.length || 0
-              });
-            }
-          } else {
-            console.warn('⚠️ [CHART LOAD] No stored execution results found, falling back to live execution');
-          }
-      }
-      
-      // Fallback to live execution - check if we have data
-      if (!data || !Array.isArray(data) || data.length === 0) {
-        return;
-      }
-      
-      setError(null);
-      
-      try {
-        // Fallback to live execution
-        console.log(`Executing SQL queries live for: ${title}`);
-        
-        // Get fileId from the data object
-        const fileId = (data as any)?.fileId;
-        
-        if (!fileId) {
-          // Fallback to unified method if no fileId available
-          console.log("No fileId available, falling back to unified method");
-          const yAxisResponse = await fetch("/api/execute-sql-unified", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-              sqlQuery, 
-              data, 
-              headers: Object.keys(data[0] || {}),
-              method: 'auto'
-            }),
+        if (result.success && result.results.length > 0) {
+          const executionResult = result.results[0];
+          
+          console.log('📊 [CHART LOAD] Execution result details:', {
+            executionSuccess: executionResult.execution_success,
+            yAxisResultsCount: executionResult.y_axis_results?.length || 0,
+            xAxisResultsCount: executionResult.x_axis_results?.length || 0,
+            metricName: executionResult.metric_name
           });
           
-          const yAxisData = await yAxisResponse.json();
-          console.log("Y-axis SQL results (unified):", yAxisData.results);
-          
-          // Execute X-axis query for labels
-          let xAxisData = null;
-          if (xAxisQuery) {
-            const xAxisResponse = await fetch("/api/execute-sql-unified", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ 
-                sqlQuery: xAxisQuery, 
-                data, 
-                headers: Object.keys(data[0] || {}),
-                method: 'auto'
-              }),
-            });
+          if (executionResult.execution_success && executionResult.y_axis_results && executionResult.y_axis_results.length > 0) {
+            console.log('✅ [CHART LOAD] Using stored execution results for chart');
+            setChartData(generateChartDataFromSQL(executionResult.y_axis_results, executionResult.x_axis_results, chartConfig));
+            setTableData(executionResult.y_axis_results || []);
+            setDataSource('stored');
             
-            xAxisData = await xAxisResponse.json();
-          }
-          
-          // Process the results
-          if (yAxisData.success) {
-            setChartData(generateChartDataFromSQL(yAxisData.results, xAxisData?.results, chartConfig));
-            setTableData(yAxisData.results || []);
-            setDataSource('live');
+            // Clear loading timeout and ensure loading is false
+            clearTimeout(loadingTimeout);
+            setLoading(false);
+            return;
           } else {
-            setError(yAxisData.error || "Failed to execute SQL query");
+            console.warn('⚠️ [CHART LOAD] Stored execution result is not valid:', {
+              executionSuccess: executionResult.execution_success,
+              hasYAxisResults: !!executionResult.y_axis_results,
+              yAxisResultsLength: executionResult.y_axis_results?.length || 0
+            });
+            setError("Stored execution results are invalid. Please regenerate KPI analysis.");
+            clearTimeout(loadingTimeout);
+            setLoading(false);
+            return;
           }
+        } else {
+          console.warn('⚠️ [CHART LOAD] No stored execution results found');
+          setError("No stored execution results found. Please regenerate KPI analysis.");
+          clearTimeout(loadingTimeout);
+          setLoading(false);
           return;
         }
-
-        // Use temporary table method
-        const yAxisResponse = await fetch("/api/execute-sql-temp-table", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            sqlQuery, 
-            fileId,
-            xAxisQuery
-          }),
-        });
-        
-        const yAxisData = await yAxisResponse.json();
-        
-        // Process the results
-        if (yAxisData.success) {
-          setChartData(generateChartDataFromSQL(yAxisData.results, yAxisData.xAxisResults, chartConfig));
-          setTableData(yAxisData.results || []);
-          setDataSource('live');
-        } else {
-          setError(yAxisData.error || "Failed to execute SQL query");
-        }
-        
       } catch (err) {
         console.error("Error loading chart data:", err);
-        setError("Failed to load chart data");
+        setError("Failed to load chart data from stored results. Please regenerate KPI analysis.");
         setChartData(null);
-        if (data && Array.isArray(data) && data.length > 0) {
-          setTableData(data);
-        }
+        clearTimeout(loadingTimeout);
+        setLoading(false);
       }
     };
     
     loadChartData();
-  }, [sqlQuery, xAxisQuery, data, chartConfig, kpiAnalysisId, metricIndex, title]);
+  }, [kpiAnalysisId, metricIndex, chartConfig, title]);
 
   // Generate chart data from SQL execution results
   const generateChartDataFromSQL = (yAxisResults: any[], xAxisResults: any[] | null, config: any) => {
@@ -658,8 +604,9 @@ export function KPIChart({
     }
   }
 
-  // Use SQL-generated data or fallback
-  const finalChartData = chartData || generateChartDataFromOriginal()
+  // Use SQL-generated data or fallback (only if not loading)
+  // Don't show dummy data while loading - show skeleton instead
+  const finalChartData = loading ? null : (chartData || (data && Array.isArray(data) && data.length > 0 ? generateChartDataFromOriginal() : null))
   
   // Ensure table data is available
   const finalTableData = tableData.length > 0 ? tableData : (data && Array.isArray(data) ? data : [])
@@ -680,6 +627,34 @@ export function KPIChart({
   }
   
   // console.log("Final chart data for rendering:", finalChartData);
+
+  // Skeleton loading component
+  const SkeletonLoader = () => (
+    <div className="h-full w-full animate-pulse">
+      <div className="h-4 bg-gray-200 rounded w-3/4 mb-4"></div>
+      <div className="h-3 bg-gray-200 rounded w-1/2 mb-6"></div>
+      <div className="space-y-3">
+        <div className="h-32 bg-gray-200 rounded"></div>
+        <div className="h-32 bg-gray-200 rounded"></div>
+        <div className="h-32 bg-gray-200 rounded"></div>
+      </div>
+    </div>
+  );
+
+  // Show skeleton while loading
+  if (loading) {
+    return (
+      <Card className="h-full">
+        <CardHeader>
+          <CardTitle className="text-lg">{title}</CardTitle>
+          <CardDescription>{description}</CardDescription>
+        </CardHeader>
+        <CardContent className="p-6">
+          <SkeletonLoader />
+        </CardContent>
+      </Card>
+    );
+  }
 
   // If no data available, don't render the chart
   if (!finalChartData) {
