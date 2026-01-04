@@ -37,13 +37,7 @@ create policy "profiles_insert_own"
 create policy "profiles_update_own"
   on public.profiles for update
   using (auth.uid() = id)
-  with check (
-    auth.uid() = id and 
-    (old.role = new.role or exists (
-      select 1 from public.profiles
-      where id = auth.uid() and role = 'admin'
-    ))
-  );
+  with check (auth.uid() = id);
 
 -- Only admins can update roles
 create policy "profiles_update_role_admin"
